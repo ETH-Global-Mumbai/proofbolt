@@ -88,6 +88,20 @@ pnpm zerog replay
 
 Decisions made with `DEV_MOCKS=1` are fake and get published like any other. Deploy a new contract and delete `data/` before the real demo, so the public record holds only real decisions.
 
+## Test the real 0G AI
+
+Set `OG_API_KEY` in `.env`. To use the real AI with a fake World ID, run:
+
+```bash
+DEV_AI=LIVE pnpm start
+```
+
+To score the AI on your own photos, put JPEGs in `gateway/photos/`, which git ignores. Name each one `<challenge>__<expected answer>.jpg`, like `show-a-fist__OPEN.jpg`, `show-a-fist__HOLD-wrong-gesture.jpg` or `show-a-fist__ALERT-printed.jpg`. Each photo spends credits:
+
+```bash
+pnpm zerog photos photos
+```
+
 ## Flash the ESP8266
 
 ```bash

@@ -152,6 +152,7 @@ export class LockerService {
     const challenge = attempt.challenge!;
     const ai = await this.deps.decider.decide({ challenge, imageDataUrl });
     attempt.requestId = ai.requestId;
+    if (ai.status !== "OK") console.warn(`[ai] ${ai.status}: ${ai.detail}`);
 
     // Read after the AI call, so a grant revoked during that call still counts.
     let grant: Grant | null;

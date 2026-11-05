@@ -28,7 +28,12 @@ function required(name: string): string {
 }
 
 const devMocks = process.env.DEV_MOCKS === "1";
-if (devMocks) console.warn("DEV_MOCKS=1: World ID and the AI are FAKE. Never use this for a real demo.");
+const devAi = process.env.DEV_AI ?? "OPEN";
+if (!["OPEN", "HOLD", "ALERT", "DOWN", "LIVE"].includes(devAi)) throw new Error("DEV_AI must be OPEN, HOLD, ALERT, DOWN or LIVE");
+const fakeAi = devMocks && devAi !== "LIVE";
+if (devMocks) {
+  console.warn(`DEV_MOCKS=1: World ID${fakeAi ? " and the AI are" : " is"} FAKE. Never use this for a real demo.`);
+}
 
 mkdirSync("data", { recursive: true });
 const lockerId = required("LOCK_ID");
@@ -60,10 +65,7 @@ async function openGrants(): Promise<GrantBook> {
 
 const grants = await openGrants();
 
-const devAi = process.env.DEV_AI ?? "OPEN";
-if (!["OPEN", "HOLD", "ALERT", "DOWN"].includes(devAi)) throw new Error("DEV_AI must be OPEN, HOLD, ALERT or DOWN");
-
-const decider: Decider = devMocks
+const decider: Decider = fakeAi
   ? new FakeDecider(devAi as AiDecision | "DOWN")
   : new ZeroGDecider({
       apiKey: required("OG_API_KEY"),

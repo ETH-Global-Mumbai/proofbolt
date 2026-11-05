@@ -1,6 +1,10 @@
 // Wallet, contract and replay tools for 0G. Run with: pnpm zerog <command>
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ethers } from "ethers";
+import { ZeroGDecider } from "../ai/zerog.ts";
+import type { AiDecision } from "../ai/types.ts";
 import { errorText } from "../log/errors.ts";
 import { linkStatus, type ChainedRecord } from "../log/episode.ts";
 import { ZeroGNetwork } from "./network.ts";
@@ -9,7 +13,20 @@ const USAGE = `Commands:
   wallet    Create a new wallet and print its key
   check     Show the balance, then upload a small test file to 0G Storage and read it back
   deploy    Deploy the DecisionAnchor contract
-  replay    Rebuild the decision history from 0G Chain and 0G Storage, and verify it`;
+  replay    Rebuild the decision history from 0G Chain and 0G Storage, and verify it
+  photos <folder>   Score the real 0G AI on labelled JPEGs, named like show-a-fist__OPEN.jpg`;
+
+const MAX_PHOTOS = 30;
+
+/** Reads a name like show-2-fingers__hold-2.jpg. Anything after the answer tells repeats apart. */
+export function parsePhotoName(name: string): { challenge: string; expected: AiDecision } | null {
+  const match = /^([a-z0-9-]+)__(open|hold|alert)(?:-[a-z0-9-]+)?\.jpe?g$/i.exec(name);
+  if (!match) return null;
+  return {
+    challenge: match[1]!.replaceAll("-", " ").toUpperCase(),
+    expected: match[2]!.toUpperCase() as AiDecision,
+  };
+}
 
 function network(): ZeroGNetwork {
   return new ZeroGNetwork({
@@ -61,8 +78,45 @@ async function replay(): Promise<void> {
   if (!valid) process.exitCode = 1;
 }
 
+async function scorePhotos(folder: string | undefined): Promise<void> {
+  if (!folder) throw new Error(USAGE);
+  const apiKey = process.env.OG_API_KEY;
+  if (!apiKey) throw new Error("Missing OG_API_KEY. See .env.example");
+  const photos = readdirSync(folder).flatMap((name) => {
+    const parsed = parsePhotoName(name);
+    return parsed ? [{ name, ...parsed }] : [];
+  });
+  if (photos.length === 0) throw new Error("No photos named like show-a-fist__OPEN.jpg");
+  if (photos.length > MAX_PHOTOS) throw new Error(`Each photo spends credits, so the limit is ${MAX_PHOTOS}`);
+
+  const decider = new ZeroGDecider({ apiKey, model: process.env.OG_MODEL });
+  let correct = 0;
+  let wrongOpens = 0;
+  let slowest = 0;
+  for (const photo of photos) {
+    const imageDataUrl = `data:image/jpeg;base64,${readFileSync(join(folder, photo.name)).toString("base64")}`;
+    const started = Date.now();
+    const result = await decider.decide({ challenge: photo.challenge, imageDataUrl });
+    const elapsed = Date.now() - started;
+    slowest = Math.max(slowest, elapsed);
+    const answer = result.decision ?? result.status;
+    if (answer === photo.expected) correct++;
+    const wrongOpen = answer === "OPEN" && photo.expected !== "OPEN";
+    if (wrongOpen) wrongOpens++;
+    console.log(
+      `${answer === photo.expected ? "ok   " : "WRONG"}  ${photo.name}  expected ${photo.expected}, got ${answer}, ` +
+        `${elapsed} ms, request ${result.requestId ?? "-"}${wrongOpen ? "  WRONGLY OPENED" : ""}${result.detail ? `  ${result.detail}` : ""}`,
+    );
+  }
+  console.log(`${correct} of ${photos.length} correct, ${wrongOpens} wrongly opened, slowest ${slowest} ms`);
+  if (wrongOpens > 0) process.exitCode = 1;
+}
+
 async function run(command: string | undefined): Promise<void> {
   switch (command) {
+    case "photos":
+      await scorePhotos(process.argv[3]);
+      break;
     case "wallet": {
       const wallet = ethers.Wallet.createRandom();
       console.log(`OG_PRIVATE_KEY=${wallet.privateKey}`);
@@ -98,9 +152,11 @@ async function run(command: string | undefined): Promise<void> {
   }
 }
 
-try {
-  await run(process.argv[2]);
-} catch (error) {
-  console.error(errorText(error));
-  process.exitCode = 1;
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    await run(process.argv[2]);
+  } catch (error) {
+    console.error(errorText(error));
+    process.exitCode = 1;
+  }
 }

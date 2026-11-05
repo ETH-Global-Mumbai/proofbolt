@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { parseDecision } from "../src/ai/zerog.ts";
+import { parsePhotoName } from "../src/zerog/cli.ts";
 import { EpisodeLog, linkStatus, verifyChain, type DecisionRecord } from "../src/log/episode.ts";
 import { EpisodePublisher, type DecisionPointer } from "../src/zerog/publisher.ts";
 
@@ -172,4 +174,21 @@ test("replay spots an edited record, a dropped record and a log reset", () => {
 
   const fresh = new EpisodeLog().append(decision("d"));
   assert.equal(linkStatus(fresh, third), "NEW_LOG");
+});
+
+test("AI output: reasoning and code fences are tolerated, anything else isn't an answer", () => {
+  assert.equal(parseDecision('{"decision":"OPEN"}'), "OPEN");
+  assert.equal(parseDecision('```json\n{"decision":"HOLD"}\n```'), "HOLD");
+  assert.equal(parseDecision('<think>a fist?</think>\n{"decision":"ALERT"}'), "ALERT");
+  assert.equal(parseDecision('Sure! {"decision":"OPEN"}'), null);
+  assert.equal(parseDecision('{"decision":"OPEN"} {"decision":"OPEN"}'), null);
+  assert.equal(parseDecision('{"decision":"UNLOCK"}'), null);
+  assert.equal(parseDecision("OPEN"), null);
+});
+
+test("photo names give the challenge and the expected answer", () => {
+  assert.deepEqual(parsePhotoName("show-a-fist__OPEN.jpg"), { challenge: "SHOW A FIST", expected: "OPEN" });
+  assert.deepEqual(parsePhotoName("show-2-fingers__hold-2.jpeg"), { challenge: "SHOW 2 FINGERS", expected: "HOLD" });
+  assert.equal(parsePhotoName("notes.txt"), null);
+  assert.equal(parsePhotoName("show-a-fist.jpg"), null);
 });

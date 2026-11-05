@@ -28,7 +28,7 @@ export class ZeroGDecider implements Decider {
   constructor(private readonly options: ZeroGOptions) {
     this.baseUrl = options.baseUrl ?? "https://router-api.0g.ai/v1";
     this.model = options.model ?? "qwen3.8-flash";
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = options.timeoutMs ?? 20_000;
     this.verifyTee = options.verifyTee ?? false;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
@@ -43,7 +43,6 @@ export class ZeroGDecider implements Decider {
           model: this.model,
           max_tokens: 64,
           temperature: 0,
-          response_format: { type: "json_object" },
           ...(this.verifyTee ? { verify_tee: true } : {}),
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
@@ -98,10 +97,15 @@ interface RouterResponse {
   };
 }
 
-function parseDecision(content: string | undefined): AiDecision | null {
+/** Accepts one JSON object, optionally after a reasoning block or inside a code fence. Nothing looser. */
+export function parseDecision(content: string | undefined): AiDecision | null {
   if (!content) return null;
+  const json = content
+    .replace(/^\s*<think>[\s\S]*?<\/think>/, "")
+    .trim()
+    .replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1");
   try {
-    const { decision } = JSON.parse(content) as { decision?: unknown };
+    const { decision } = JSON.parse(json) as { decision?: unknown };
     return DECISIONS.has(decision as AiDecision) ? (decision as AiDecision) : null;
   } catch {
     return null;

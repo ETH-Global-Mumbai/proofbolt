@@ -228,3 +228,17 @@ test("log: tampering breaks the chain", async (t) => {
   log.records[0]!.decision = "HOLD";
   assert.equal(verifyChain(log.records), false);
 });
+
+test("the AI request doesn't ask for JSON mode, which the default model rejects", async () => {
+  let sent: Record<string, unknown> = {};
+  const decider = new ZeroGDecider({
+    apiKey: "k",
+    fetchImpl: (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(init.body as string);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"decision":"HOLD"}' } }] }));
+    }) as unknown as typeof fetch,
+  });
+  const result = await decider.decide({ challenge: "SHOW A FIST", imageDataUrl: PHOTO });
+  assert.equal(result.decision, "HOLD");
+  assert.equal(sent.response_format, undefined);
+});
