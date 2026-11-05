@@ -69,7 +69,7 @@ const decider: Decider = fakeAi
   ? new FakeDecider(devAi as AiDecision | "DOWN")
   : new ZeroGDecider({
       apiKey: required("OG_API_KEY"),
-      baseUrl: process.env.OG_BASE,
+      baseUrl: process.env.OG_BASE || undefined,
       model: process.env.OG_MODEL,
       verifyTee: process.env.OG_VERIFY_TEE === "1",
     });

@@ -214,7 +214,6 @@ void setup() {
 
 void loop() {
   static bool announcedIp = false;
-  const uint32_t now = millis();
 
   if (WiFi.status() == WL_CONNECTED && !announcedIp) {
     announcedIp = true;
@@ -223,6 +222,9 @@ void loop() {
   }
   server.handleClient();
 
+  // Read the clock after handling commands. An earlier reading would be older than the command's
+  // timestamp, and the unsigned subtraction below would wrap and report the gateway as lost.
+  const uint32_t now = millis();
   if (unlocked && static_cast<int32_t>(now - relockAtMs) >= 0) {
     relock();
     show("LOCKED");
