@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Locker</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
+    video { width: 100%; background: #111; border-radius: 8px; }
+    button, a.button { display: block; width: 100%; padding: 14px; margin: 12px 0; font-size: 16px; text-align: center; box-sizing: border-box; }
+    #state { font-size: 20px; font-weight: 600; }
+    #challenge { font-size: 28px; font-weight: 700; margin: 12px 0; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Locker</h1>
+  <p id="state">Enter your grant to begin.</p>
+  <p id="challenge" hidden></p>
+
+  <form id="start">
+    <label>Grant ID <input id="grant" value="dev-grant" required></label>
+    <button>Request unlock</button>
+  </form>
+
+  <section id="camera" hidden>
+    <video id="video" autoplay playsinline muted></video>
+    <p>Point the camera at your hand only.</p>
+    <button id="capture">Take photo</button>
+  </section>
+
+  <button id="again" hidden>Start over</button>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const attemptId = new URLSearchParams(location.search).get("attempt");
+
+    const messages = {
+      AWAITING_PHOTO: "World ID verified. Do the challenge.",
+      DECIDING: "Checking…",
+      OPENED: "Door open.",
+    };
+
+    function render(attempt) {
+      $("start").hidden = true;
+      $("state").textContent = attempt.state === "DENIED"
+        ? `Stayed locked: ${attempt.reason}`
+        : (messages[attempt.state] ?? attempt.state);
+      $("challenge").hidden = attempt.state !== "AWAITING_PHOTO";
+      $("challenge").textContent = attempt.challenge ?? "";
+      $("camera").hidden = attempt.state !== "AWAITING_PHOTO";
+      $("again").hidden = attempt.state !== "OPENED" && attempt.state !== "DENIED";
+      if (attempt.state === "AWAITING_PHOTO") startCamera();
+    }
+
+    async function startCamera() {
+      if ($("video").srcObject) return;
+      try {
+        $("video").srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (error) {
+        $("state").textContent = `Camera unavailable: ${error.message}`;
+      }
+    }
+
+    $("start").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch("/api/attempts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ grantId: $("grant").value }),
+      });
+      const attempt = await response.json();
+      location.href = `/api/attempts/${attempt.id}/world`;
+    });
+
+    $("capture").addEventListener("click", async () => {
+      const video = $("video");
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, 640 / video.videoWidth);
+      canvas.width = video.videoWidth * scale;
+      canvas.height = video.videoHeight * scale;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      $("state").textContent = messages.DECIDING;
+      $("camera").hidden = true;
+      const response = await fetch(`/api/attempts/${attemptId}/photo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: canvas.toDataURL("image/jpeg", 0.8) }),
+      });
+      video.srcObject?.getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+      const body = await response.json();
+      if (response.ok) render(body);
+      else $("state").textContent = body.error;
+    });
+
+    $("again").addEventListener("click", () => { location.href = "/"; });
+
+    if (attemptId) {
+      fetch(`/api/attempts/${attemptId}`).then((r) => r.json()).then(render);
+    }
+  </script>
+</body>
+</html>
