@@ -11,12 +11,15 @@
     "mock-lock": "tsx --env-file=.env src/lock/mock-main.ts",
     "status": "tsx --env-file=.env src/status-main.ts",
     "arkiv": "tsx --env-file=.env src/arkiv/cli.ts",
+    "zerog": "tsx --env-file=.env src/zerog/cli.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@0gfoundation/0g-storage-ts-sdk": "^1.2.13",
     "@arkiv-network/sdk": "1.0.1",
     "@hono/node-server": "^1.13.7",
+    "ethers": "6.13.1",
     "hono": "^4.6.14",
     "jose": "^5.9.6",
     "tsx": "^4.19.2",
@@ -24,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "solc": "^0.8.38",
     "typescript": "^5.7.2"
   }
 }

@@ -1,11 +1,12 @@
 // Publishes what the status page shows. The locker entity lives only while the gateway keeps
 // extending it, so a dead gateway drops off the page by itself.
 import { errorText } from "../log/errors.ts";
+import type { DecisionNotifier, DecisionPointer } from "../zerog/publisher.ts";
 import type { AttemptEntity, ArkivBackend } from "./backend.ts";
 
 export const BOARD_BEAT_MS = 20_000;
 
-export class LockerBoard {
+export class LockerBoard implements DecisionNotifier {
   private key: string | null = null;
   private published: boolean | null = null;
   private busy = false;
@@ -36,6 +37,11 @@ export class LockerBoard {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** Throws on failure, so the publisher retries it. */
+  decisionStored(pointer: DecisionPointer): Promise<void> {
+    return this.arkiv.createDecision(pointer);
   }
 
   /** Doesn't wait for the block, so the door never waits on this write. */

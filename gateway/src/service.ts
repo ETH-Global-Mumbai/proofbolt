@@ -40,7 +40,7 @@ const CHALLENGES = [
 
 /** Told how each attempt ended. Reports go public, so they never carry a World ID. */
 export interface AttemptReporter {
-  attempt(report: { lockerId: string; outcome: string; reason: string; requestId: string; at: number }): void;
+  attempt(report: { lockerId: string; attemptId: string; outcome: string; reason: string; requestId: string; at: number }): void;
 }
 
 export interface ServiceDeps {
@@ -209,6 +209,7 @@ export class LockerService {
   private report(attempt: Attempt): void {
     this.deps.reporter?.attempt({
       lockerId: attempt.lockerId,
+      attemptId: attempt.id,
       outcome: attempt.state,
       reason: attempt.reason ?? "",
       requestId: attempt.requestId ?? "",

@@ -60,6 +60,34 @@ pnpm status
 
 Open http://localhost:8090. See [arkiv/schema.md](arkiv/schema.md) for what is stored.
 
+## Publish decisions to 0G
+
+Each decision is uploaded in full to 0G Storage, anchored by the `DecisionAnchor` contract on 0G Chain, then linked from Arkiv and the status page. This runs in the background and never affects the door. Without `OG_PRIVATE_KEY`, `DEV_MOCKS=1` skips it.
+
+Run this and put the key it prints in `.env`, then fund the address at https://faucet.0g.ai:
+
+```bash
+pnpm zerog wallet
+```
+
+Check that storage works, then deploy the contract and put its address in `OG_ANCHOR_ADDRESS`:
+
+```bash
+pnpm zerog check
+```
+
+```bash
+pnpm zerog deploy
+```
+
+Anyone can rebuild and verify the history from 0G alone, with only `OG_ANCHOR_ADDRESS` set:
+
+```bash
+pnpm zerog replay
+```
+
+Decisions made with `DEV_MOCKS=1` are fake and get published like any other. Deploy a new contract and delete `data/` before the real demo, so the public record holds only real decisions.
+
 ## Flash the ESP8266
 
 ```bash
@@ -106,8 +134,6 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 
 ## Not built yet
 
-- Uploading the log to 0G Storage. It is only written to `data/episode.jsonl` for now.
-- The on-chain contract, which 0G requires.
 - `WORLD_DEBRIEF.md`, which the World prize requires.
 - `arkiv/reach.md`, `arkiv/why-arkiv.md` and `arkiv/how-you-use-arkiv.md`, plus the writer wallet and a sample query in this README, which the Arkiv prize requires.
 
@@ -115,7 +141,7 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 
 - The gateway trusts its camera, so injected video could pass the challenge.
 - The gateway holds the policy and the signing key, so it is a trusted party.
-- If Arkiv can't be read, every unlock is refused. If a status write fails, the door still works and the page goes stale.
+- If Arkiv can't be read, every unlock is refused. If a status write or 0G upload fails, the door still works and publishing retries.
 - The key sits in the board's external flash, so the board must stay inside the locked box.
 - Anyone on the network can request a nonce, which can disrupt a command but can't open the lock.
 - The randomness of `ESP.random()` has not been measured.

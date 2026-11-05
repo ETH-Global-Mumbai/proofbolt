@@ -11,12 +11,15 @@ import { GrantStore, type GrantBook } from "./grants.ts";
 import { LockClient } from "./lock/client.ts";
 import { parseKey } from "./lock/protocol.ts";
 import { EpisodeLog } from "./log/episode.ts";
+import { EpisodePublisher } from "./zerog/publisher.ts";
+import { ZeroGNetwork } from "./zerog/network.ts";
 import { createApp } from "./server.ts";
 import { LockerService } from "./service.ts";
 import type { WorldProvider } from "./world/types.ts";
 import { SANDBOX_ISSUER, WorldOidc } from "./world/oidc.ts";
 
 const HEARTBEAT_MS = 3000;
+const PUBLISH_MS = 15_000;
 
 function required(name: string): string {
   const value = process.env[name];
@@ -79,6 +82,21 @@ const world: WorldProvider = devMocks
     });
 
 const lock = new LockClient(required("LOCK_URL"), lockerId, parseKey(required("LOCK_KEY_HEX")));
+const log = new EpisodeLog("data/episode.jsonl");
+
+// Only DEV_MOCKS may run without 0G's record of decisions.
+if (process.env.OG_PRIVATE_KEY || !devMocks) {
+  const zerog = new ZeroGNetwork({
+    rpcUrl: process.env.OG_CHAIN_RPC,
+    chainId: Number(process.env.OG_CHAIN_ID) || undefined,
+    privateKey: required("OG_PRIVATE_KEY"),
+    anchorAddress: required("OG_ANCHOR_ADDRESS"),
+  });
+  const publisher = new EpisodePublisher(log, zerog, zerog, board ?? null, "data/published.json");
+  console.log(`[0g] gateway wallet ${zerog.signer.address}`);
+  setInterval(() => void publisher.sync(), PUBLISH_MS);
+}
+
 const service = new LockerService({
   lockerId,
   grants,
@@ -86,7 +104,7 @@ const service = new LockerService({
   decider,
   world,
   reporter: board,
-  log: new EpisodeLog("data/episode.jsonl"),
+  log,
 });
 
 // Silence from the gateway makes the board fall back to SAFE STOP by itself.

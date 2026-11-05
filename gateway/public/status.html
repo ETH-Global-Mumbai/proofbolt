@@ -17,7 +17,7 @@
   <p id="state">Reading Arkiv…</p>
   <h2>Recent attempts</h2>
   <table>
-    <thead><tr><th>Time</th><th>Result</th><th>Reason</th><th>0G request</th></tr></thead>
+    <thead><tr><th>Time</th><th>Result</th><th>Reason</th><th>0G request</th><th>0G record</th></tr></thead>
     <tbody id="attempts"></tbody>
   </table>
   <p><small id="source"></small></p>
@@ -28,6 +28,21 @@
     function describe(locker) {
       if (!locker) return "Gateway offline. The door stays locked.";
       return locker.lockReachable ? "Online. It opens only when every check passes." : "Lock not responding. The door stays locked.";
+    }
+
+    function proofCell(decision) {
+      const td = document.createElement("td");
+      if (!decision) {
+        td.textContent = "-";
+        return td;
+      }
+      const link = document.createElement("a");
+      link.href = `https://chainscan-galileo.0g.ai/tx/${decision.anchorTx}`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = `${decision.storageRoot.slice(0, 10)}…`;
+      td.append(link);
+      return td;
     }
 
     function cell(text) {
@@ -52,6 +67,7 @@
           cell(attempt.outcome),
           cell(attempt.reason || "-"),
           cell(attempt.requestId || "-"),
+          proofCell(status.decisions.find((decision) => decision.attemptId === attempt.attemptId)),
         );
         return row;
       }));

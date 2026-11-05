@@ -20,14 +20,23 @@ export const LockerSchema = defineSchema("proofbolt.locker", {
 
 export const AttemptSchema = defineSchema("proofbolt.attempt", {
   lockerId: str().indexed(),
+  attemptId: str(),
   outcome: str().indexed(),
   reason: str(),
   requestId: str(),
   at: u64().indexed(),
 });
 
+export const DecisionSchema = defineSchema("proofbolt.decision", {
+  lockerId: str().indexed(),
+  attemptId: str(),
+  storageRoot: str(),
+  anchorTx: str(),
+  at: u64().indexed(),
+});
+
 export const LOCKER_TTL_SECONDS = 60;
-const ATTEMPT_TTL_DAYS = 7;
+const HISTORY_TTL_DAYS = 30;
 const RECENT_ATTEMPTS = 20;
 
 export interface GrantEntity {
@@ -42,15 +51,25 @@ export interface LockerEntity {
 
 export interface AttemptEntity {
   lockerId: string;
+  attemptId: string;
   outcome: string;
   reason: string;
   requestId: string;
   at: number;
 }
 
+export interface DecisionEntity {
+  lockerId: string;
+  attemptId: string;
+  storageRoot: string;
+  anchorTx: string;
+  at: number;
+}
+
 export interface LockerStatus {
   locker: LockerEntity | null;
   attempts: AttemptEntity[];
+  decisions: DecisionEntity[];
 }
 
 export interface ArkivReader {
@@ -66,6 +85,7 @@ export interface ArkivWriter {
   patchLocker(key: string, lockReachable: boolean): Promise<void>;
   extendLocker(key: string): Promise<void>;
   createAttempt(attempt: AttemptEntity): Promise<void>;
+  createDecision(decision: DecisionEntity): Promise<void>;
 }
 
 export type ArkivBackend = ArkivReader & ArkivWriter;
@@ -131,8 +151,17 @@ export class ArkivRead implements ArkivReader {
       .limit(1)
       .fetch();
     const attempts = await this.client
-      .select({ lockerId: true, outcome: true, reason: true, requestId: true, at: true })
+      .select({ lockerId: true, attemptId: true, outcome: true, reason: true, requestId: true, at: true })
       .from(AttemptSchema)
+      .ownedBy(this.gateway)
+      .createdBy(this.gateway)
+      .where(eq("lockerId", lockerId))
+      .orderBy(desc("at"))
+      .limit(RECENT_ATTEMPTS)
+      .fetch();
+    const decisions = await this.client
+      .select({ lockerId: true, attemptId: true, storageRoot: true, anchorTx: true, at: true })
+      .from(DecisionSchema)
       .ownedBy(this.gateway)
       .createdBy(this.gateway)
       .where(eq("lockerId", lockerId))
@@ -144,9 +173,17 @@ export class ArkivRead implements ArkivReader {
       locker: locker ? { lockReachable: locker.lockReachable.value } : null,
       attempts: attempts.entities.map((row) => ({
         lockerId: row.lockerId.value,
+        attemptId: row.attemptId.value,
         outcome: row.outcome.value,
         reason: row.reason.value,
         requestId: row.requestId.value,
+        at: Number(row.at.value),
+      })),
+      decisions: decisions.entities.map((row) => ({
+        lockerId: row.lockerId.value,
+        attemptId: row.attemptId.value,
+        storageRoot: row.storageRoot.value,
+        anchorTx: row.anchorTx.value,
         at: Number(row.at.value),
       })),
     };
@@ -219,7 +256,17 @@ export class Arkiv extends ArkivRead implements ArkivWriter {
       await this.wallet.createEntity(
         AttemptSchema,
         { ...attempt, at: u64(BigInt(attempt.at)) },
-        { expiration: ExpirationTime.fromDays(ATTEMPT_TTL_DAYS) },
+        { expiration: ExpirationTime.fromDays(HISTORY_TTL_DAYS) },
+      );
+    });
+  }
+
+  createDecision(decision: DecisionEntity): Promise<void> {
+    return this.write(async () => {
+      await this.wallet.createEntity(
+        DecisionSchema,
+        { ...decision, at: u64(BigInt(decision.at)) },
+        { expiration: ExpirationTime.fromDays(HISTORY_TTL_DAYS) },
       );
     });
   }

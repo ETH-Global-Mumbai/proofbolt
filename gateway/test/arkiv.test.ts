@@ -1,7 +1,14 @@
 // Runs the Arkiv logic and the whole unlock flow against an in-memory Arkiv.
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { isTrusted, type ArkivBackend, type AttemptEntity, type GrantEntity, type LockerStatus } from "../src/arkiv/backend.ts";
+import {
+  isTrusted,
+  type ArkivBackend,
+  type AttemptEntity,
+  type DecisionEntity,
+  type GrantEntity,
+  type LockerStatus,
+} from "../src/arkiv/backend.ts";
 import { LockerBoard } from "../src/arkiv/board.ts";
 import { ArkivGrants } from "../src/arkiv/grants.ts";
 import { FakeDecider, FakeWorld } from "../src/dev.ts";
@@ -20,6 +27,7 @@ class MemoryArkiv implements ArkivBackend {
   grants = new Map<string, GrantEntity>();
   locker: { key: string; lockReachable: boolean } | null = null;
   attempts: AttemptEntity[] = [];
+  decisions: DecisionEntity[] = [];
   extensions = 0;
   patches = 0;
   down = false;
@@ -38,7 +46,7 @@ class MemoryArkiv implements ArkivBackend {
   }
   async readStatus(): Promise<LockerStatus> {
     this.check();
-    return { locker: this.locker, attempts: this.attempts };
+    return { locker: this.locker, attempts: this.attempts, decisions: this.decisions };
   }
   async createGrant(lockerId: string) {
     this.check();
@@ -69,6 +77,10 @@ class MemoryArkiv implements ArkivBackend {
   async createAttempt(attempt: AttemptEntity) {
     this.check();
     this.attempts.push(attempt);
+  }
+  async createDecision(decision: DecisionEntity) {
+    this.check();
+    this.decisions.push(decision);
   }
 }
 
