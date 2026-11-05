@@ -33,7 +33,9 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const attemptId = new URLSearchParams(location.search).get("attempt");
+    const params = new URLSearchParams(location.search);
+    const attemptId = params.get("attempt");
+    if (params.get("grant")) $("grant").value = params.get("grant");
 
     const messages = {
       AWAITING_PHOTO: "World ID verified. Do the challenge.",

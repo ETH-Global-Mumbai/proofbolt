@@ -2,19 +2,25 @@
   "name": "locker-gateway",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
     "mock-lock": "tsx --env-file=.env src/lock/mock-main.ts",
+    "status": "tsx --env-file=.env src/status-main.ts",
+    "arkiv": "tsx --env-file=.env src/arkiv/cli.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@arkiv-network/sdk": "1.0.1",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14",
     "jose": "^5.9.6",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -1,13 +1,15 @@
 // One unlock attempt, from request to door. Every failure takes the same failClosed path.
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import type { AiResult, Decider } from "./ai/types.ts";
-import type { GrantStore, Subject } from "./grants.ts";
+import type { Grant, GrantBook, Subject } from "./grants.ts";
 import type { LockSender } from "./lock/client.ts";
+import { errorText } from "./log/errors.ts";
 import type { EpisodeLog } from "./log/episode.ts";
 import { evaluate } from "./policy.ts";
 import type { PendingWorldCheck, WorldProvider } from "./world/types.ts";
 
 export const ATTEMPT_TTL_MS = 180_000;
+const GRANTS_DOWN = "ARKIV_UNREACHABLE";
 
 export type AttemptState = "AWAITING_WORLD" | "WORLD_PENDING" | "AWAITING_PHOTO" | "DECIDING" | "OPENED" | "DENIED";
 
@@ -21,6 +23,7 @@ export interface Attempt {
   reason: string | null;
   worldSubject: Subject | null;
   pendingWorld: PendingWorldCheck | null;
+  requestId: string | null;
 }
 
 export type PublicAttempt = Pick<Attempt, "id" | "state" | "challenge" | "reason" | "expiresAt">;
@@ -35,8 +38,15 @@ const CHALLENGES = [
   "SHOW THUMBS UP",
 ];
 
+/** Told how each attempt ended. Reports go public, so they never carry a World ID. */
+export interface AttemptReporter {
+  attempt(report: { lockerId: string; outcome: string; reason: string; requestId: string; at: number }): void;
+}
+
 export interface ServiceDeps {
-  grants: GrantStore;
+  lockerId: string;
+  grants: GrantBook;
+  reporter?: AttemptReporter;
   lock: LockSender;
   decider: Decider;
   world: WorldProvider;
@@ -61,17 +71,17 @@ export class LockerService {
   }
 
   create(grantId: string): Attempt {
-    const grant = this.deps.grants.get(grantId);
     const attempt: Attempt = {
       id: randomUUID(),
       grantId,
-      lockerId: grant?.lockerId ?? "unknown",
+      lockerId: this.deps.lockerId,
       state: "AWAITING_WORLD",
       expiresAt: this.now() + ATTEMPT_TTL_MS,
       challenge: null,
       reason: null,
       worldSubject: null,
       pendingWorld: null,
+      requestId: null,
     };
     this.attempts.set(attempt.id, attempt);
     return attempt;
@@ -108,12 +118,20 @@ export class LockerService {
 
     if (this.now() >= attempt.expiresAt) return this.failClosed(attempt, "ATTEMPT_EXPIRED");
 
-    const grant = this.deps.grants.get(attempt.grantId);
-    if (!grant) return this.failClosed(attempt, "NO_GRANT");
-    if (!grant.subject && !this.deps.grants.enroll(grant.id, subject)) {
-      return this.failClosed(attempt, "ENROLLMENT_REFUSED");
+    let enrolled: Subject;
+    try {
+      const grant = await this.deps.grants.get(attempt.grantId);
+      if (!grant) return this.failClosed(attempt, "NO_GRANT");
+      if (grant.lockerId !== attempt.lockerId) return this.failClosed(attempt, "WRONG_LOCKER");
+      if (grant.revoked) return this.failClosed(attempt, "GRANT_REVOKED");
+      if (!grant.subject && !(await this.deps.grants.enroll(grant.id, subject))) {
+        return this.failClosed(attempt, "ENROLLMENT_REFUSED");
+      }
+      enrolled = grant.subject ?? subject;
+    } catch (error) {
+      console.warn(`[grants] unavailable: ${errorText(error)}`);
+      return this.failClosed(attempt, GRANTS_DOWN);
     }
-    const enrolled = this.deps.grants.get(attempt.grantId)!.subject!;
     if (enrolled.iss !== subject.iss || enrolled.sub !== subject.sub) {
       return this.failClosed(attempt, "WRONG_PERSON");
     }
@@ -133,10 +151,23 @@ export class LockerService {
 
     const challenge = attempt.challenge!;
     const ai = await this.deps.decider.decide({ challenge, imageDataUrl });
+    attempt.requestId = ai.requestId;
+
+    // Read after the AI call, so a grant revoked during that call still counts.
+    let grant: Grant | null;
+    try {
+      grant = await this.deps.grants.get(attempt.grantId);
+    } catch (error) {
+      console.warn(`[grants] unavailable: ${errorText(error)}`);
+      this.record(attempt, imageDataUrl, ai, GRANTS_DOWN, "NOT_SENT");
+      return this.failClosed(attempt, GRANTS_DOWN);
+    }
+
     const policy = evaluate({
       now: this.now(),
+      lockerId: attempt.lockerId,
       attemptExpiresAt: attempt.expiresAt,
-      grant: this.deps.grants.get(attempt.grantId),
+      grant,
       worldSubject: attempt.worldSubject,
       aiDecision: ai.decision,
     });
@@ -148,7 +179,10 @@ export class LockerService {
       if (sent.ok) attempt.state = "OPENED";
     }
     this.record(attempt, imageDataUrl, ai, policy.allow ? "ALLOW" : policy.reason, lockAck);
-    if (attempt.state === "OPENED") return attempt;
+    if (attempt.state === "OPENED") {
+      this.report(attempt);
+      return attempt;
+    }
 
     if (policy.allow) return this.failClosed(attempt, "LOCK_UNREACHABLE");
     return this.failClosed(attempt, ai.status === "OK" ? policy.reason : ai.status);
@@ -172,10 +206,21 @@ export class LockerService {
     });
   }
 
+  private report(attempt: Attempt): void {
+    this.deps.reporter?.attempt({
+      lockerId: attempt.lockerId,
+      outcome: attempt.state,
+      reason: attempt.reason ?? "",
+      requestId: attempt.requestId ?? "",
+      at: this.now(),
+    });
+  }
+
   private async failClosed(attempt: Attempt, reason: string): Promise<Attempt> {
     attempt.state = "DENIED";
     attempt.reason = reason;
     attempt.worldSubject = null;
+    this.report(attempt);
     const line = reason === "0G_UNREACHABLE" ? "0G unreachable" : reason;
     await this.deps.lock.send(reason === "0G_UNREACHABLE" ? "SAFE" : "SHOW", reason === "0G_UNREACHABLE" ? line : `DENIED|${line}`);
     return attempt;

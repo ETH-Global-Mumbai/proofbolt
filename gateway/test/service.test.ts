@@ -31,6 +31,7 @@ async function setup(t: TestContext, decider: Decider = new FakeDecider()) {
   const log = new EpisodeLog();
   let clock = Date.now();
   const service = new LockerService({
+    lockerId: "locker-1",
     grants,
     world,
     decider,
@@ -57,7 +58,7 @@ test("happy path: verified person with a passing AI check opens the door", async
   await service.submitPhoto(attempt.id, PHOTO);
   assert.equal(attempt.state, "OPENED");
   assert.equal(lock.openCount, 1);
-  assert.deepEqual(grants.get("g1")!.subject, { iss: "world", sub: "alice" });
+  assert.deepEqual((await grants.get("g1"))!.subject, { iss: "world", sub: "alice" });
 
   const [record] = log.records;
   assert.equal(record!.decision, "OPEN");
@@ -123,7 +124,7 @@ test("printed photo: AI says ALERT and the door stays shut", async (t) => {
 test("prompt injection: a fooled model can't open a grant revoked after verification", async (t) => {
   const { service, verified, lock, grants } = await setup(t, new FakeDecider("OPEN"));
   const attempt = await verified();
-  grants.put({ ...grants.get("g1")!, revoked: true });
+  grants.put({ ...(await grants.get("g1"))!, revoked: true });
   await service.submitPhoto(attempt.id, PHOTO);
   assert.equal(attempt.reason, "GRANT_REVOKED");
   assert.equal(lock.openCount, 0);

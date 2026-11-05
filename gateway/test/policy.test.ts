@@ -5,7 +5,7 @@ import { evaluate, type PolicyInput } from "../src/policy.ts";
 
 const SUBJECT = { iss: "world", sub: "alice" };
 const GRANT: Grant = { id: "g", lockerId: "l", expiresAt: 2000, revoked: false, subject: SUBJECT, enrollable: false };
-const BASE: PolicyInput = { now: 1000, attemptExpiresAt: 2000, grant: GRANT, worldSubject: SUBJECT, aiDecision: "OPEN" };
+const BASE: PolicyInput = { now: 1000, lockerId: "l", attemptExpiresAt: 2000, grant: GRANT, worldSubject: SUBJECT, aiDecision: "OPEN" };
 
 test("allows only when every check passes", () => {
   assert.deepEqual(evaluate(BASE), { allow: true });
@@ -14,6 +14,7 @@ test("allows only when every check passes", () => {
 const denials: [string, Partial<PolicyInput>, string][] = [
   ["expired attempt", { now: 2000, grant: { ...GRANT, expiresAt: 9000 } }, "ATTEMPT_EXPIRED"],
   ["no grant", { grant: null }, "NO_GRANT"],
+  ["grant for another locker", { lockerId: "other" }, "WRONG_LOCKER"],
   ["revoked grant", { grant: { ...GRANT, revoked: true } }, "GRANT_REVOKED"],
   ["expired grant", { grant: { ...GRANT, expiresAt: 500 } }, "GRANT_EXPIRED"],
   ["no World check", { worldSubject: null }, "WORLD_NOT_VERIFIED"],

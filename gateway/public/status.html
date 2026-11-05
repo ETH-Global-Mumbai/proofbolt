@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Locker status</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 16px; }
+    #state { font-size: 24px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
+    small { opacity: 0.7; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Locker</h1>
+  <p id="state">Reading Arkiv…</p>
+  <h2>Recent attempts</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Result</th><th>Reason</th><th>0G request</th></tr></thead>
+    <tbody id="attempts"></tbody>
+  </table>
+  <p><small id="source"></small></p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function describe(locker) {
+      if (!locker) return "Gateway offline. The door stays locked.";
+      return locker.lockReachable ? "Online. It opens only when every check passes." : "Lock not responding. The door stays locked.";
+    }
+
+    function cell(text) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      return td;
+    }
+
+    async function refresh() {
+      const response = await fetch("/api/status").catch(() => null);
+      const status = response?.ok ? await response.json() : null;
+      if (!status) {
+        $("state").textContent = "Can't read Arkiv right now.";
+        return;
+      }
+      $("title").textContent = status.lockerId;
+      $("state").textContent = describe(status.locker);
+      $("attempts").replaceChildren(...status.attempts.map((attempt) => {
+        const row = document.createElement("tr");
+        row.append(
+          cell(new Date(attempt.at).toLocaleTimeString()),
+          cell(attempt.outcome),
+          cell(attempt.reason || "-"),
+          cell(attempt.requestId || "-"),
+        );
+        return row;
+      }));
+      $("source").textContent = `Read from Arkiv, entities written by ${status.gateway}`;
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

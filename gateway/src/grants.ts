@@ -1,4 +1,4 @@
-// Local grant store. World identifiers stay in this file and never go on-chain.
+// Grants and the local store. World identifiers stay on this machine and never go on-chain.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export interface Subject {
@@ -16,7 +16,15 @@ export interface Grant {
   enrollable: boolean;
 }
 
-export class GrantStore {
+export interface GrantBook {
+  /** Throws if the source of grants can't answer, which must keep the door shut. */
+  get(id: string): Promise<Grant | null>;
+  /** Links an identity to an unenrolled grant. Returns false if the grant can't take it. */
+  enroll(id: string, subject: Subject): Promise<boolean>;
+}
+
+/** For running with DEV_MOCKS=1 and no Arkiv wallet. */
+export class GrantStore implements GrantBook {
   private grants = new Map<string, Grant>();
 
   constructor(private readonly path: string | null = null) {
@@ -25,7 +33,7 @@ export class GrantStore {
     }
   }
 
-  get(id: string): Grant | null {
+  async get(id: string): Promise<Grant | null> {
     return this.grants.get(id) ?? null;
   }
 
@@ -34,8 +42,7 @@ export class GrantStore {
     this.save();
   }
 
-  /** Links an identity to an unenrolled grant. Returns false if the grant can't take it. */
-  enroll(id: string, subject: Subject): boolean {
+  async enroll(id: string, subject: Subject): Promise<boolean> {
     const grant = this.grants.get(id);
     if (!grant || grant.subject || !grant.enrollable) return false;
     const taken = [...this.grants.values()].some(

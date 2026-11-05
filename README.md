@@ -1,10 +1,10 @@
 # Locker
 
-A locker that opens only when a valid grant, a fresh World ID check, a 0G AI decision and a signed command all pass.
+A locker that opens only when a live grant on Arkiv, a fresh World ID check, a 0G AI decision and a signed command all pass.
 
 ```
 Browser ── World ID check, camera photo ──> Gateway (laptop) ── 0G Router (AI decision)
-                                               │
+                                               │ ───────────── Arkiv (grants, status) ──> Status page
                                      policy.ts decides
                                                │
                               signed one-time command (HMAC + nonce)
@@ -33,6 +33,32 @@ pnpm start
 ```
 
 Open http://localhost:8080. With `DEV_MOCKS=1`, World ID and the AI are fake and the seeded grant is `dev-grant`.
+
+## Use Arkiv
+
+Without `ARKIV_PRIVATE_KEY`, `DEV_MOCKS=1` keeps grants in a local file. To use Arkiv, run this and put the key it prints in `.env`:
+
+```bash
+pnpm arkiv wallet
+```
+
+Fund the address at https://hub.arkiv.network/faucet, and put a key from https://hub.arkiv.network/access-keys in `ARKIV_ACCESS_KEY`. Set `ARKIV_GATEWAY_ADDRESS` to the wallet's address, then check it works and create a grant:
+
+```bash
+pnpm arkiv check
+```
+
+```bash
+pnpm arkiv grant 10
+```
+
+Open the kiosk link it prints. To revoke a grant, run `pnpm arkiv revoke <grant>`. The public status page reads only Arkiv, so it keeps working when the gateway is down:
+
+```bash
+pnpm status
+```
+
+Open http://localhost:8090. See [arkiv/schema.md](arkiv/schema.md) for what is stored.
 
 ## Flash the ESP8266
 
@@ -81,13 +107,15 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 ## Not built yet
 
 - Uploading the log to 0G Storage. It is only written to `data/episode.jsonl` for now.
-- The on-chain contract. Grants are in `data/grants.json` for now, and 0G requires contract addresses.
+- The on-chain contract, which 0G requires.
 - `WORLD_DEBRIEF.md`, which the World prize requires.
+- `arkiv/reach.md`, `arkiv/why-arkiv.md` and `arkiv/how-you-use-arkiv.md`, plus the writer wallet and a sample query in this README, which the Arkiv prize requires.
 
 ## Known limits
 
 - The gateway trusts its camera, so injected video could pass the challenge.
 - The gateway holds the policy and the signing key, so it is a trusted party.
+- If Arkiv can't be read, every unlock is refused. If a status write fails, the door still works and the page goes stale.
 - The key sits in the board's external flash, so the board must stay inside the locked box.
 - Anyone on the network can request a nonce, which can disrupt a command but can't open the lock.
 - The randomness of `ESP.random()` has not been measured.

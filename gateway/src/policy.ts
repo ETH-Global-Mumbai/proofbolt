@@ -5,6 +5,8 @@ import type { Grant, Subject } from "./grants.ts";
 
 export interface PolicyInput {
   now: number;
+  /** The locker this gateway drives. A grant for any other locker opens nothing here. */
+  lockerId: string;
   attemptExpiresAt: number;
   grant: Grant | null;
   /** Null unless the World ID callback validated for this attempt. */
@@ -15,9 +17,10 @@ export interface PolicyInput {
 export type PolicyResult = { allow: true } | { allow: false; reason: string };
 
 export function evaluate(input: PolicyInput): PolicyResult {
-  const { now, attemptExpiresAt, grant, worldSubject, aiDecision } = input;
+  const { now, lockerId, attemptExpiresAt, grant, worldSubject, aiDecision } = input;
   if (now >= attemptExpiresAt) return { allow: false, reason: "ATTEMPT_EXPIRED" };
   if (!grant) return { allow: false, reason: "NO_GRANT" };
+  if (grant.lockerId !== lockerId) return { allow: false, reason: "WRONG_LOCKER" };
   if (grant.revoked) return { allow: false, reason: "GRANT_REVOKED" };
   if (now >= grant.expiresAt) return { allow: false, reason: "GRANT_EXPIRED" };
   if (!worldSubject) return { allow: false, reason: "WORLD_NOT_VERIFIED" };
