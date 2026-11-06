@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/arc/button/button";
 import { ConfirmMorph } from "@/components/arc/confirm-morph/confirm-morph";
 import { CopyButton } from "@/components/arc/copy-button/copy-button";
 import { Input } from "@/components/arc/input/input";
+import { hasWebGL } from "@/lib/scene3d";
 import { mount, Page, Shout, usePoll } from "@/lib/ui";
+
+const Key3D = lazy(() => import("@/lib/key3d"));
+const SOLID = hasWebGL();
 
 const REFRESH_MS = 5000;
 const DURATIONS = [
@@ -84,6 +88,11 @@ function OwnerPage() {
   return (
     <Page side={state ? <a href={state.statusUrl} target="_blank" rel="noreferrer">{lock}</a> : lock}>
       <main className="column">
+        {SOLID && (
+          <Suspense fallback={<div style={{ height: "min(30dvh, 260px)" }} />}>
+            <Key3D seed={created?.id} busy={busy} height="min(30dvh, 260px)" />
+          </Suspense>
+        )}
         <AnimatePresence mode="wait" initial={false}>
           {created ? (
             <motion.section

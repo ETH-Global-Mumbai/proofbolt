@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/arc/button/button";
 import { ProductFilm } from "@/lib/film";
 import { Bolt, RollNumber, ScanGrid } from "@/lib/motion";
+import { hasWebGL } from "@/lib/scene3d";
+import type { LockFace } from "@/lib/lock3d";
 import { mount, Page, Shout } from "@/lib/ui";
+
+const Lock3D = lazy(() => import("@/lib/lock3d"));
+const SOLID = hasWebGL();
+
+/** The big word: on the lock's face in 3D, or on the page if the browser can't do 3D. */
+function Title({ children, delay }: { children: string; delay?: number }) {
+  return SOLID ? <h1 className="sr">{children}</h1> : <Shout delay={delay}>{children}</Shout>;
+}
 
 const OPEN_SECONDS = 5;
 const COUNTDOWN_SECONDS = 3;
@@ -54,8 +64,7 @@ const readable = (challenge: string | null) => {
   return text.charAt(0).toUpperCase() + text.slice(1);
 };
 
-function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: string) => void }) {
-  const video = useRef<HTMLVideoElement>(null);
+function PhotoScreen({ attempt, video, onPhoto, onCount }: { attempt: Attempt; video: RefObject<HTMLVideoElement | null>; onPhoto: (image: string) => void; onCount: (count: number | null) => void }) {
   const [cameraError, setCameraError] = useState(false);
   const [ready, setReady] = useState(false);
   const [count, setCount] = useState<number | null>(null);
@@ -69,7 +78,9 @@ function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: 
     } catch {
       setCameraError(true);
     }
-  }, []);
+  }, [video]);
+
+  useEffect(() => onCount(count), [count, onCount]);
 
   useEffect(() => {
     void openCamera();
@@ -89,7 +100,7 @@ function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: 
     canvas.height = node.videoHeight * scale;
     canvas.getContext("2d")!.drawImage(node, 0, 0, canvas.width, canvas.height);
     onPhoto(canvas.toDataURL("image/jpeg", 0.8));
-  }, [onPhoto]);
+  }, [onPhoto, video]);
 
   useEffect(() => {
     if (count === null) return;
@@ -122,13 +133,14 @@ function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: 
           ? `Not quite. Try this one. ${attempt.triesLeft === 1 ? "Last try." : `${attempt.triesLeft} tries left.`}`
           : "Show the camera"}
       </p>
-      <Shout>{readable(attempt.challenge)}</Shout>
+      <Title>{readable(attempt.challenge)}</Title>
       {cameraError ? (
         <p className="say" role="alert">
           {navigator.mediaDevices ? "We couldn't open the camera. Allow it for this page." : "The camera needs a secure (https) link."}
         </p>
       ) : (
-        <div className="frame">
+        // Hidden, not removed, in 3D: its picture is what gets drawn onto the lock's face.
+        <div className={SOLID ? "offscreen" : "frame"}>
           <video ref={video} autoPlay playsInline muted />
           {count !== null && count > 0 && <div className="count"><RollNumber value={count} /></div>}
         </div>
@@ -150,18 +162,21 @@ function CheckingScreen({ image }: { image: string }) {
   return (
     <>
       <p className="quiet" style={{ margin: "0 0 6px" }}>One moment</p>
-      <Shout>Checking</Shout>
-      <div className="frame">
-        <img src={image} alt="The photo you took" />
-        <ScanGrid />
-        <span className="flash" aria-hidden="true" />
-      </div>
+      <Title>Checking</Title>
+      {!SOLID && (
+        <div className="frame">
+          <img src={image} alt="The photo you took" />
+          <ScanGrid />
+          <span className="flash" aria-hidden="true" />
+        </div>
+      )}
     </>
   );
 }
 
-function OpenedScreen({ onDone }: { onDone: () => void }) {
+function OpenedScreen({ onDone, onLeft }: { onDone: () => void; onLeft: (left: number) => void }) {
   const [left, setLeft] = useState(OPEN_SECONDS);
+  useEffect(() => onLeft(left), [left, onLeft]);
   useEffect(() => {
     if (left <= 0) return;
     const timer = setTimeout(() => setLeft(left - 1), 1000);
@@ -169,10 +184,10 @@ function OpenedScreen({ onDone }: { onDone: () => void }) {
   }, [left]);
   return (
     <>
-      <Shout delay={0.3}>{left > 0 ? "Open" : "Locked again"}</Shout>
-      <Bolt state={left > 0 ? "open" : "locked"} />
+      <Title delay={0.3}>{left > 0 ? "Open" : "Locked again"}</Title>
+      {!SOLID && <Bolt state={left > 0 ? "open" : "locked"} />}
       <p className="say" role="status">
-        {left > 0 ? <>Locks again in <RollNumber value={left} className="mono" />.</> : "Thanks. You can close this page."}
+        {left > 0 ? (SOLID ? "It locks again by itself." : <>Locks again in <RollNumber value={left} className="mono" />.</>) : "Thanks. You can close this page."}
       </p>
       <div className="foot"><Button variant="secondary" size="lg" className="wide" onClick={onDone}>Done</Button></div>
     </>
@@ -183,8 +198,8 @@ function DeniedScreen({ attempt, onRetry }: { attempt: Attempt; onRetry: () => v
   const [text, canRetry] = REASONS[attempt.reason ?? ""] ?? ["Please try again.", true];
   return (
     <>
-      <Shout delay={0.3}>Still locked</Shout>
-      <Bolt state="refused" />
+      <Title delay={0.3}>Still locked</Title>
+      {!SOLID && <Bolt state="refused" />}
       <p className="say">{text}</p>
       <div className="foot">
         {canRetry && <Button variant="primary" size="lg" className="wide" onClick={onRetry}>Try again</Button>}
@@ -197,8 +212,8 @@ function DeniedScreen({ attempt, onRetry }: { attempt: Attempt; onRetry: () => v
 function StartScreen({ access, error, busy, onStart }: { access: Access | null; error: boolean; busy: boolean; onStart: () => void }) {
   return (
     <>
-      <Shout>{error ? "No connection" : "Locked"}</Shout>
-      <Bolt state="locked" />
+      {error ? <Shout>No connection</Shout> : <Title>Locked</Title>}
+      {!SOLID && !error && <Bolt state="locked" />}
       <p className="say">
         {error ? "We couldn't reach the locker." : "Show a quick hand gesture to open it."}
       </p>
@@ -214,6 +229,9 @@ function StartScreen({ access, error, busy, onStart }: { access: Access | null; 
 }
 
 function Kiosk() {
+  const video = useRef<HTMLVideoElement | null>(null);
+  const [count, setCount] = useState<number | null>(null);
+  const [openLeft, setOpenLeft] = useState(OPEN_SECONDS);
   const [access, setAccess] = useState<Access | null>(null);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -300,16 +318,38 @@ function Kiosk() {
   const view = photo ? "checking" : attempt?.state === "AWAITING_PHOTO" ? "photo" : attempt?.state === "OPENED" ? "opened" : attempt?.state === "DENIED" ? "denied" : "start";
 
   // /?film shows the film on a device that also has an access link saved.
+  const face: LockFace =
+    view === "photo"
+      ? { mode: "photo", title: readable(attempt?.challenge ?? null), count, video }
+      : view === "checking"
+        ? { mode: "checking", title: "Checking", photo }
+        : view === "opened"
+          ? { mode: openLeft > 0 ? "open" : "locked", title: openLeft > 0 ? "OPEN" : "LOCKED", count: openLeft > 0 ? openLeft : null }
+          : view === "denied"
+            ? { mode: "denied", title: "STILL LOCKED" }
+            : { mode: "locked", title: "LOCKED" };
   const landing = view === "start" && !error && (!access || new URLSearchParams(location.search).has("film"));
 
   return (
-    <Page flood={view === "opened" ? "open" : view === "denied" ? "stop" : undefined} side={landing ? "Open your access link to unlock" : undefined}>
+    <Page flood={view === "opened" ? "open" : view === "denied" ? "stop" : undefined}>
+      {SOLID && !error && (
+        <Suspense fallback={<div style={{ height: landing ? "78dvh" : "56dvh" }} />}>
+          <Lock3D face={face} height={landing ? "78dvh" : "56dvh"} captions={landing} />
+        </Suspense>
+      )}
       <main className={landing ? "column film-column" : "column"}>
-        {landing && <ProductFilm />}
+        {landing && (
+          <>
+            {!SOLID && <Shout>Proof first. Then the bolt.</Shout>}
+            <p className="say">A physical lock that only moves when a live grant and a 0G AI decision both pass.</p>
+            <div style={{ height: 40 }} />
+            <ProductFilm />
+          </>
+        )}
         {view === "start" && !landing && <StartScreen access={access} error={error} busy={busy} onStart={() => access && void begin(access)} />}
-        {view === "photo" && attempt && <PhotoScreen attempt={attempt} onPhoto={(image) => void sendPhoto(image)} />}
+        {view === "photo" && attempt && <PhotoScreen attempt={attempt} video={video} onCount={setCount} onPhoto={(image) => void sendPhoto(image)} />}
         {view === "checking" && photo && <CheckingScreen image={photo} />}
-        {view === "opened" && <OpenedScreen onDone={done} />}
+        {view === "opened" && <OpenedScreen onDone={done} onLeft={setOpenLeft} />}
         {view === "denied" && attempt && <DeniedScreen attempt={attempt} onRetry={() => (access ? void begin(access) : done())} />}
       </main>
     </Page>

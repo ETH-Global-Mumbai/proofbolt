@@ -25,7 +25,7 @@ pnpm web
 cp .env.example .env
 ```
 
-`pnpm web` builds the React pages in `web/`, using Arc components installed through the shadcn CLI. Run it again after changing them.
+`pnpm web` builds the React pages in `web/`, using Arc components installed through the shadcn CLI. Run it again after changing them. Open `/?film` to see the landing page and product film on a device that already has an access link saved.
 
 Set `LOCK_KEY_HEX` in `.env` to the output of `openssl rand -hex 32`, then run each of these in its own terminal:
 
