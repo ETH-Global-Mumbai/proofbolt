@@ -96,7 +96,15 @@ function OwnerPage() {
             >
               <Shout>Scan it</Shout>
               <p className="say">Only shown now. Anyone with it can try the door.</p>
-              <img className="qr" style={{ marginTop: 20 }} src={created.qr} alt="QR code of the access link" />
+              <motion.img
+                className="qr"
+                style={{ marginTop: 20 }}
+                src={created.qr}
+                alt="QR code of the access link"
+                initial={reduce ? false : { clipPath: "inset(0 0 100% 0)" }}
+                animate={{ clipPath: "inset(0 0 0% 0)" }}
+                transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+              />
               <p className="code">{created.link}</p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <CopyButton value={created.link} label="Copy link" />

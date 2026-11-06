@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Lamps } from "@/lib/motion";
 import { mount, Page, Shout, usePoll } from "@/lib/ui";
 
 const REFRESH_MS = 5000;
@@ -85,16 +86,10 @@ function StatusPage() {
           <p className="say">{text}</p>
         </div>
         {online && (
-          <div className="life" aria-hidden="true">
-            <motion.i
-              initial={false}
-              animate={{ scaleX: Math.min(1, seconds / LOCKER_TTL_SECONDS) }}
-              transition={reduce ? { duration: 0 } : { duration: 0.9, ease: "linear" }}
-            />
-          </div>
+          <Lamps share={Math.min(1, seconds / LOCKER_TTL_SECONDS)} />
         )}
         {attempts.length > 0 && (
-          <section className="list">
+          <section className="list" style={{ perspective: 800 }}>
             <h2>Latest attempts</h2>
             <AnimatePresence initial={false}>
               {attempts.map((attempt) => {
@@ -105,9 +100,10 @@ function StatusPage() {
                     key={attempt.attemptId}
                     layout={reduce ? false : "position"}
                     className="row"
-                    initial={reduce ? false : { opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                    initial={reduce ? false : { opacity: 0, rotateX: -70 }}
+                    animate={{ opacity: 1, rotateX: 0 }}
+                    style={{ transformOrigin: "50% 0%" }}
+                    transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
                   >
                     <div>
                       <span className={opened ? "yes" : ""}>{opened ? "Opened" : "Refused"}</span>

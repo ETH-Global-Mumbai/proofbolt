@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/arc/button/button";
+import { ProductFilm } from "@/lib/film";
+import { Bolt, RollNumber, ScanGrid } from "@/lib/motion";
 import { mount, Page, Shout } from "@/lib/ui";
 
 const OPEN_SECONDS = 5;
@@ -54,7 +55,6 @@ const readable = (challenge: string | null) => {
 };
 
 function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: string) => void }) {
-  const reduce = useReducedMotion();
   const video = useRef<HTMLVideoElement>(null);
   const [cameraError, setCameraError] = useState(false);
   const [ready, setReady] = useState(false);
@@ -130,21 +130,7 @@ function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: 
       ) : (
         <div className="frame">
           <video ref={video} autoPlay playsInline muted />
-          <AnimatePresence>
-            {count !== null && count > 0 && (
-              <motion.div
-                key={count}
-                className="count mono"
-                aria-live="assertive"
-                initial={reduce ? false : { opacity: 0, scale: 1.25 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                {count}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {count !== null && count > 0 && <div className="count"><RollNumber value={count} /></div>}
         </div>
       )}
       <div className="foot">
@@ -161,22 +147,14 @@ function PhotoScreen({ attempt, onPhoto }: { attempt: Attempt; onPhoto: (image: 
 }
 
 function CheckingScreen({ image }: { image: string }) {
-  const reduce = useReducedMotion();
   return (
     <>
       <p className="quiet" style={{ margin: "0 0 6px" }}>One moment</p>
       <Shout>Checking</Shout>
       <div className="frame">
         <img src={image} alt="The photo you took" />
-        {!reduce && (
-          <motion.div
-            className="sweep"
-            aria-hidden="true"
-            initial={{ left: "-34%" }}
-            animate={{ left: "100%" }}
-            transition={{ duration: 1.1, ease: "easeInOut", repeat: Infinity }}
-          />
-        )}
+        <ScanGrid />
+        <span className="flash" aria-hidden="true" />
       </div>
     </>
   );
@@ -191,8 +169,11 @@ function OpenedScreen({ onDone }: { onDone: () => void }) {
   }, [left]);
   return (
     <>
-      <Shout>{left > 0 ? "Open" : "Locked again"}</Shout>
-      <p className="say" role="status">{left > 0 ? `Locks again in ${left}.` : "Thanks. You can close this page."}</p>
+      <Shout delay={0.3}>{left > 0 ? "Open" : "Locked again"}</Shout>
+      <Bolt state={left > 0 ? "open" : "locked"} />
+      <p className="say" role="status">
+        {left > 0 ? <>Locks again in <RollNumber value={left} className="mono" />.</> : "Thanks. You can close this page."}
+      </p>
       <div className="foot"><Button variant="secondary" size="lg" className="wide" onClick={onDone}>Done</Button></div>
     </>
   );
@@ -202,7 +183,8 @@ function DeniedScreen({ attempt, onRetry }: { attempt: Attempt; onRetry: () => v
   const [text, canRetry] = REASONS[attempt.reason ?? ""] ?? ["Please try again.", true];
   return (
     <>
-      <Shout>Still locked</Shout>
+      <Shout delay={0.3}>Still locked</Shout>
+      <Bolt state="refused" />
       <p className="say">{text}</p>
       <div className="foot">
         {canRetry && <Button variant="primary" size="lg" className="wide" onClick={onRetry}>Try again</Button>}
@@ -216,8 +198,9 @@ function StartScreen({ access, error, busy, onStart }: { access: Access | null; 
   return (
     <>
       <Shout>{error ? "No connection" : "Locked"}</Shout>
+      <Bolt state="locked" />
       <p className="say">
-        {error ? "We couldn't reach the locker." : access ? "Show a quick hand gesture to open it." : "Open the access link you were given."}
+        {error ? "We couldn't reach the locker." : "Show a quick hand gesture to open it."}
       </p>
       {access && (
         <div className="foot">
@@ -316,10 +299,14 @@ function Kiosk() {
 
   const view = photo ? "checking" : attempt?.state === "AWAITING_PHOTO" ? "photo" : attempt?.state === "OPENED" ? "opened" : attempt?.state === "DENIED" ? "denied" : "start";
 
+  // /?film shows the film on a device that also has an access link saved.
+  const landing = view === "start" && !error && (!access || new URLSearchParams(location.search).has("film"));
+
   return (
-    <Page flood={view === "opened" ? "open" : view === "denied" ? "stop" : undefined}>
-      <main className="column">
-        {view === "start" && <StartScreen access={access} error={error} busy={busy} onStart={() => access && void begin(access)} />}
+    <Page flood={view === "opened" ? "open" : view === "denied" ? "stop" : undefined} side={landing ? "Open your access link to unlock" : undefined}>
+      <main className={landing ? "column film-column" : "column"}>
+        {landing && <ProductFilm />}
+        {view === "start" && !landing && <StartScreen access={access} error={error} busy={busy} onStart={() => access && void begin(access)} />}
         {view === "photo" && attempt && <PhotoScreen attempt={attempt} onPhoto={(image) => void sendPhoto(image)} />}
         {view === "checking" && photo && <CheckingScreen image={photo} />}
         {view === "opened" && <OpenedScreen onDone={done} />}
