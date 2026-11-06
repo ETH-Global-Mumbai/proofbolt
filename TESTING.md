@@ -20,6 +20,12 @@ OG_ANCHOR_ADDRESS=<your contract>
 
 With `DEV_MOCKS` empty, nothing is faked and the gateway refuses to start if a key is missing. `10.42.0.46` is the address the board has had so far. If it changes, use the one on the LCD.
 
+**Build the web pages,** which you only need to repeat after changing them. From `gateway/`:
+
+```bash
+pnpm web
+```
+
 **Turn on the hotspot and start clean.** The laptop needs internet through its wired connection. Plug the board in, then run these from `gateway/`:
 
 ```bash

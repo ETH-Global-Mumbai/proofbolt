@@ -9,6 +9,7 @@
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
     "mock-lock": "tsx --env-file=.env src/lock/mock-main.ts",
+    "web": "pnpm --dir ../web install && pnpm --dir ../web build",
     "lock-test": "tsx --env-file=.env src/lock/board-test.ts",
     "status": "tsx --env-file=.env src/status-main.ts",
     "owner-page": "tsx --env-file=.env src/owner-main.ts",

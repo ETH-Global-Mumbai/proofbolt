@@ -1,17 +1,14 @@
-import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { LockerService } from "./service.ts";
+import { addWebPage } from "./web.ts";
 
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
-const kiosk = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("../public/kiosk.css", import.meta.url), "utf8");
 
 export function createApp(service: LockerService): Hono {
   const app = new Hono();
 
-  app.get("/", (c) => c.html(kiosk));
-  app.get("/kiosk.css", (c) => c.text(styles, 200, { "content-type": "text/css" }));
+  addWebPage(app, "kiosk");
 
   app.post("/api/attempts", async (c) => {
     const { grantId, code } = await c.req.json<{ grantId?: string; code?: string }>();

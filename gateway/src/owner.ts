@@ -1,17 +1,15 @@
 // The lock owner's page: create, list and revoke access. It uses the gateway's wallet, so it must
 // never be reachable from outside this machine. See owner-main.ts.
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import QRCode from "qrcode";
 import type { ArkivBackend } from "./arkiv/backend.ts";
 import { hashCode } from "./grants.ts";
 import { errorText } from "./log/errors.ts";
+import { addWebPage } from "./web.ts";
 
 const MAX_MINUTES = 30 * 24 * 60;
 const MAX_LABEL_BYTES = 40;
-const page = readFileSync(new URL("../public/owner.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("../public/kiosk.css", import.meta.url), "utf8");
 
 export interface OwnerOptions {
   lockerId: string;
@@ -42,8 +40,7 @@ export function createOwnerApp(
     await next();
   });
 
-  app.get("/", (c) => c.html(page));
-  app.get("/kiosk.css", (c) => c.text(styles, 200, { "content-type": "text/css" }));
+  addWebPage(app, "owner");
 
   app.get("/api/state", async (c) => {
     try {

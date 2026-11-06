@@ -25,6 +25,7 @@ constexpr uint32_t OPEN_MS = 5000;
 constexpr uint32_t SERVO_SETTLE_MS = 700;
 constexpr uint32_t GATEWAY_TIMEOUT_MS = 8000;
 constexpr uint32_t WIFI_RETRY_MS = 15000;
+constexpr uint32_t WIFI_RESTART_MS = 60000;
 
 uint8_t lockKey[32];
 bool keyValid = false;
@@ -216,14 +217,20 @@ void setup() {
 void loop() {
   static bool announcedIp = false;
   static uint32_t lastWifiMs = 0;
+  static uint32_t lastOnlineMs = 0;
 
   if (WiFi.status() == WL_CONNECTED) {
     lastWifiMs = millis();
+    lastOnlineMs = lastWifiMs;
     if (!announcedIp) {
       announcedIp = true;
       Serial.printf("[wifi] %s\n", WiFi.localIP().toString().c_str());
       if (keyValid) show("LOCKED", WiFi.localIP().toString());
     }
+  } else if (millis() - lastOnlineMs > WIFI_RESTART_MS) {
+    // Rejoining can stay stuck too. A restart always comes back locked, so it's a safe last resort.
+    Serial.println("[wifi] restarting");
+    ESP.restart();
   } else if (millis() - lastWifiMs > WIFI_RETRY_MS) {
     // Auto-reconnect can stay stuck after the network restarts, so start the join again.
     announcedIp = false;

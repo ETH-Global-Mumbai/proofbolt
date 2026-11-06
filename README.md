@@ -21,8 +21,11 @@ The ESP8266 holds no AI and no policy. Without a valid command, a key or a live 
 ```bash
 cd gateway
 pnpm install
+pnpm web
 cp .env.example .env
 ```
+
+`pnpm web` builds the React pages in `web/`, using Arc components installed through the shadcn CLI. Run it again after changing them.
 
 Set `LOCK_KEY_HEX` in `.env` to the output of `openssl rand -hex 32`, then run each of these in its own terminal:
 
