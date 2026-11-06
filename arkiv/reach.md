@@ -1,7 +1,5 @@
 # Reach
 
-> Draft: the team should correct this before submitting, especially the last section.
-
 ## Who it is for
 
 People who hand out temporary physical access without being there, such as shared lockers, parcel handoff, and equipment rooms. They need a person to prove they are present, access that ends by itself, and a record they don't have to take on trust.
@@ -16,4 +14,4 @@ Anyone can read the live data with the query in the [README](../README.md#check-
 
 ## Will we keep building it
 
-The team hasn't decided yet.
+Yes, we plan to keep building it after Mumbai.

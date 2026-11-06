@@ -3,7 +3,7 @@
 | Feature | Where | What the user sees |
 |---|---|---|
 | Expiry on grants | `proofbolt.grant`, set when a grant is created | A grant past its time stops opening the door, with `NO_GRANT` on the kiosk and lock |
-| Short expiry, extended every 20 s | `proofbolt.locker`, 60 s | If the gateway dies, the status page changes to "Gateway offline" within about a minute, with no one reporting it. While it's live, the page shows the seconds left on that record |
+| Short expiry, extended every 20 s | `proofbolt.locker`, 60 s | If the gateway dies, the status page changes to "Offline" within about a minute, with no one reporting it. While it's live, a row of lamps shows the time left on that record |
 | Listing by `lockerId`, sorted by `$expiresAt` | `proofbolt.grant` | The owner sees live access and the time left on each, and expired access disappears by itself |
 | Editing a field | `revoked` on a grant | Revoking stops an attempt already in progress, with `GRANT_REVOKED` |
 | Filtering on `lockerId`, sorting on `at` | `proofbolt.attempt`, `proofbolt.decision` | The status page's history for this locker, newest first |

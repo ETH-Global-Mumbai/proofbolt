@@ -28,3 +28,10 @@ Anyone can use `changeOwnership` to hand an entity to another wallet, so a reade
 - **Happened:** `addr takes a 0x-prefixed address`, pointing at the quote.
 - **Reproduce:** send that query through `arkiv_query`. `addr(0x...)` works.
 - **Improvement:** accept both, or say in the error that the value takes no quotes. Calling `.toString()` on a query builder is what showed us the right form.
+
+## The Hub's wallet sign-in crashed
+
+- **Expected:** choosing MetaMask on the faucet page starts the wallet connection.
+- **Happened:** the page showed "This page couldn't load", with Reload and Back buttons. It worked on a later try, so we can't say what fixed it.
+- **Reproduce:** we couldn't reproduce it on demand. We were on Linux with MetaMask, connecting from https://hub.arkiv.network/faucet.
+- **Improvement:** keep the wallet error inside the sign-in dialog, with a reason, so one failure doesn't take down the page.

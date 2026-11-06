@@ -1,22 +1,59 @@
 # proofbolt
 
-A locker that opens only when a live grant on Arkiv, its secret access code, a 0G AI decision and a signed command all pass.
+A physical lock that AI can't open by itself. It opens only when a live grant on Arkiv, its secret access code, a 0G AI decision and a one-time signed command all pass. If any step fails, including 0G or Arkiv being unreachable, it stays locked.
 
-**Current state:** runs on a real ESP8266 with a servo, the live 0G Router, Arkiv's Rabdi testnet and 0G's Galileo testnet.
+It runs on a real ESP8266 with a servo, the live 0G Router, 0G's Galileo testnet and Arkiv's Rabdi testnet.
 
 ```
-Browser ── access link, camera photo ─────> Gateway (laptop) ── 0G Router (AI decision)
-                                               │ ───────────── Arkiv (grants, status) ──> Status page
-                                     policy.ts decides
-                                               │
-                              signed one-time command (HMAC + nonce)
-                                               ▼
-                                     ESP8266 ── servo lock, display, LEDs
+Phone ── access link, camera photo ──> Gateway (laptop) ──> 0G Router: OPEN, HOLD or ALERT
+                                         │        │
+              grants, status, history <──┘        └──> 0G Storage (full record) ──> 0G Chain (anchor)
+                     Arkiv ──> public status page
+                                         │
+                       policy.ts, then a signed one-time command
+                                         ▼
+                               ESP8266: servo, LCD, LEDs
 ```
 
 The ESP8266 holds no AI and no policy. Without a valid command, a key or a live gateway, the door stays locked.
 
+## Submission
+
+| | |
+|---|---|
+| Tracks | 0G: Physical AI (real hardware). Arkiv: Build on Arkiv (from scratch) |
+| Demo video | Add link |
+| Live demo | Add link. It's a live hardware demo, so the kiosk is online while the gateway and tunnel run |
+| Team | Add names, Telegram and X |
+| `DecisionAnchor` contract | [`0x8c284001db4814560b401e6024787aC85ff88D3B`](https://chainscan-galileo.0g.ai/address/0x8c284001db4814560b401e6024787aC85ff88D3B) on 0G Galileo (chain 16602) |
+| 0G gateway wallet | [`0xC71cAC2c3178504b68406e6223B2E28D1657e746`](https://chainscan-galileo.0g.ai/address/0xC71cAC2c3178504b68406e6223B2E28D1657e746) |
+| Arkiv writer wallet | [`0x984Cab2cDC1Eccc6F8f1bbe1e31A78145a027724`](https://rabdi.explorer.arkiv.network/address/0x984Cab2cDC1Eccc6F8f1bbe1e31A78145a027724) on Rabdi (chain 7794095) |
+
+### 0G: what each requirement points to
+
+| Requirement | Where |
+|---|---|
+| A 0G call in the decision loop | [zerog.ts](gateway/src/ai/zerog.ts) sends each photo to the 0G Router's vision model, and [service.ts](gateway/src/service.ts) acts on the answer. The door can't open without it |
+| Episode log on 0G Storage, with a request ID per decision | [publisher.ts](gateway/src/zerog/publisher.ts) uploads each [record](gateway/src/log/episode.ts). Run `pnpm zerog replay` to read them back from 0G |
+| Live hardware demo | The [firmware](firmware/src/main.cpp) runs on an ESP8266 with a servo. We bring it to the booth |
+| Safe stop with no faked decision | If 0G is unreachable, the board shows `SAFE STOP`, the door stays shut, and the record shows no decision ([tests](gateway/test/service.test.ts)) |
+| Contract address | [DecisionAnchor.sol](contracts/DecisionAnchor.sol), deployed at the address above |
+
+**If 0G is removed:** nothing decides whether a gesture is real, so the door never opens, and there's no independent record of what was decided.
+
+### Arkiv: what each requirement points to
+
+| Requirement | Where |
+|---|---|
+| Writes with `@arkiv-network/sdk` | [backend.ts](gateway/src/arkiv/backend.ts) |
+| A feature users see reads from Arkiv | The door reads grants, the owner page lists them, and the [status page](gateway/src/status-main.ts) reads only Arkiv |
+| Writer wallet and a query | Above, and under [Check it yourself](#check-it-yourself) |
+| Schema and feedback | [schema.md](arkiv/schema.md), [friction.md](arkiv/friction.md) |
+| Judging criteria | [reach.md](arkiv/reach.md), [why-arkiv.md](arkiv/why-arkiv.md), [how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md) |
+
 ## Run it with no hardware or credentials
+
+You need Node 22 or later and pnpm.
 
 ```bash
 cd gateway
@@ -47,11 +84,11 @@ No account or key is needed. Writer wallet on Arkiv Rabdi: `0x984Cab2cDC1Eccc6F8
 curl -s -X POST https://rpc.rabdi.db-chain.testnet.arkiv.network -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"arkiv_query","params":["arkiv.schema = str('"'"'proofbolt.attempt'"'"') AND lockerId = str('"'"'locker-1'"'"') AND $creator = addr(0x984Cab2cDC1Eccc6F8f1bbe1e31A78145a027724)",{"select":{"key":true,"attributes":true,"expiresAt":true},"limit":5}]}'
 ```
 
-To rebuild the decision history from 0G, set `OG_ANCHOR_ADDRESS` to the contract below and run `pnpm zerog replay` in `gateway/`.
+To rebuild the decision history from 0G alone, set `OG_ANCHOR_ADDRESS` to the contract above in `gateway/.env`, then run this in `gateway/` after `pnpm install`:
 
-| Deployment | Network | Address |
-|---|---|---|
-| `DecisionAnchor` | 0G Galileo testnet (16602) | Added after the final deployment |
+```bash
+pnpm zerog replay
+```
 
 ## Use Arkiv
 
@@ -195,7 +232,7 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 
 ## How we used AI
 
-This project was built with Claude Code, which wrote most of the code and documents under the team's direction. Claude Code also ran many of the tests. The team chose the project, wired the hardware, ran the manual tests, including the real-hand unlock, and reviewed the results. See the commits marked `Co-Authored-By: Claude`.
+This project was built with Claude Code, which wrote most of the code and documents under the team's direction. Claude Code also ran many of the tests. The team chose the project, wired the hardware, ran the manual tests, including the real-hand unlock, and reviewed the results. Commits it made are marked `Co-Authored-By: Claude`.
 
 ## Known limits
 

@@ -4,7 +4,7 @@
 
 - **An honest status page when the operator's machine dies.** The page reads Arkiv and has no link to the gateway. With a database on the gateway, the page would die with it. With a hosted database, the gateway would have to write "offline" about itself, and a dead gateway can't. Here the locker's entity simply expires.
 - **Expiry that nobody has to run.** A grant stops working at its time without a cleanup job, and the door refuses it.
-- **History the operator can't quietly edit.** Attempts are public and tied to the gateway's wallet, so anyone can query them without an account or our permission. Entities can still be changed or deleted by the owner, so the tamper-proof record is the hash chain anchored on 0G Chain, and Arkiv is the readable index that points to it.
+- **History the operator can't quietly edit.** Attempts are public and tied to the gateway's wallet, so anyone can query them without an account or our permission. Entities can still be changed or deleted by the owner, so the tamper-evident record is the hash chain anchored on 0G Chain, and Arkiv is the readable index that points to it.
 
 ## What we kept off Arkiv, and why
 
