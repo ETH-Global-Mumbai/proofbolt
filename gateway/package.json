@@ -9,6 +9,7 @@
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
     "mock-lock": "tsx --env-file=.env src/lock/mock-main.ts",
+    "lock-test": "tsx --env-file=.env src/lock/board-test.ts",
     "status": "tsx --env-file=.env src/status-main.ts",
     "arkiv": "tsx --env-file=.env src/arkiv/cli.ts",
     "zerog": "tsx --env-file=.env src/zerog/cli.ts",

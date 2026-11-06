@@ -1,6 +1,8 @@
-# Locker
+# proofbolt
 
-A locker that opens only when a live grant on Arkiv, a fresh World ID check, a 0G AI decision and a signed command all pass.
+A locker that opens only when a live grant on Arkiv, a human check, a 0G AI decision and a signed command all pass.
+
+**Current state:** runs on a real ESP8266 with a servo, the live 0G Router, Arkiv's Rabdi testnet and 0G's Galileo testnet. The human check in the demo is a stand-in page. Real World ID sign-in is implemented in [oidc.ts](gateway/src/world/oidc.ts) and tested against simulated responses, but it has not run against the live service, so this project makes no World ID prize claim.
 
 ```
 Browser ── World ID check, camera photo ──> Gateway (laptop) ── 0G Router (AI decision)
@@ -33,6 +35,20 @@ pnpm start
 ```
 
 Open http://localhost:8080. With `DEV_MOCKS=1`, World ID and the AI are fake and the seeded grant is `dev-grant`.
+
+## Check it yourself
+
+No account or key is needed. Writer wallet on Arkiv Rabdi: `0x984Cab2cDC1Eccc6F8f1bbe1e31A78145a027724`.
+
+```bash
+curl -s -X POST https://rpc.rabdi.db-chain.testnet.arkiv.network -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"arkiv_query","params":["arkiv.schema = str('"'"'proofbolt.attempt'"'"') AND lockerId = str('"'"'locker-1'"'"') AND $creator = addr(0x984Cab2cDC1Eccc6F8f1bbe1e31A78145a027724)",{"select":{"key":true,"attributes":true,"expiresAt":true},"limit":5}]}'
+```
+
+To rebuild the decision history from 0G, set `OG_ANCHOR_ADDRESS` to the contract below and run `pnpm zerog replay` in `gateway/`.
+
+| Deployment | Network | Address |
+|---|---|---|
+| `DecisionAnchor` | 0G Galileo testnet (16602) | Added after the final deployment |
 
 ## Use Arkiv
 
@@ -124,6 +140,12 @@ Set `LOCK_URL` in `.env` to the IP address the board prints, and remove `DEV_MOC
 | Green LED | GPIO13 (D7) |
 | I2C display | SDA GPIO4 (D2), SCL GPIO5 (D1). SSD1306 and PCF8574 LCD are detected at boot |
 
+To watch the display, servo and LEDs respond to signed commands, with no gateway running:
+
+```bash
+LOCK_URL=http://<board ip> pnpm lock-test
+```
+
 Check `ANGLE_LOCKED` and `ANGLE_OPEN` in `src/main.cpp` against your bolt before fitting the servo.
 
 ## Lock API
@@ -138,6 +160,8 @@ Check `ANGLE_LOCKED` and `ANGLE_OPEN` in `src/main.cpp` against your bolt before
 
 ## Tests
 
+See [TESTING.md](TESTING.md) for the manual tests on the real hardware and live services.
+
 ```bash
 cd gateway && pnpm test && pnpm typecheck
 ```
@@ -148,8 +172,12 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 
 ## Not built yet
 
-- `WORLD_DEBRIEF.md`, which the World prize requires.
-- `arkiv/reach.md`, `arkiv/why-arkiv.md` and `arkiv/how-you-use-arkiv.md`, plus the writer wallet and a sample query in this README, which the Arkiv prize requires.
+- A live World ID run. It needs a client from https://auth.world.org/portal.
+- A phone page for the camera, which needs HTTPS.
+
+## How we used AI
+
+This project was built with Claude Code, which wrote most of the code and documents under the team's direction. Claude Code also ran many of the tests. The team chose the project, wired the hardware, ran the manual tests, including the real-hand unlock, and reviewed the results. See the commits marked `Co-Authored-By: Claude`.
 
 ## Known limits
 
@@ -159,3 +187,5 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 - The key sits in the board's external flash, so the board must stay inside the locked box.
 - Anyone on the network can request a nonce, which can disrupt a command but can't open the lock.
 - The randomness of `ESP.random()` has not been measured.
+- The AI is judged on a few test photos only, so its accuracy is unmeasured. Injected video or a good fake could fool it.
+- The board has no battery or manual override, so losing power leaves the servo wherever it stopped.

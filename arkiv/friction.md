@@ -21,3 +21,10 @@ The select and filter pages list `$expiresAt` and `$owner` as filters but don't 
 ## `$owner` alone doesn't prove who wrote an entity
 
 Anyone can use `changeOwnership` to hand an entity to another wallet, so a reader that filters only with `ownedBy` can be fed planted data. The docs could warn about this next to `ownedBy` and recommend adding `createdBy`.
+
+## The query language's `addr()` is unquoted, unlike `str()`
+
+- **Expected:** `$creator = addr('0x...')`, since strings are written `str('...')`.
+- **Happened:** `addr takes a 0x-prefixed address`, pointing at the quote.
+- **Reproduce:** send that query through `arkiv_query`. `addr(0x...)` works.
+- **Improvement:** accept both, or say in the error that the value takes no quotes. Calling `.toString()` on a query builder is what showed us the right form.
