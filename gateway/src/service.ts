@@ -106,7 +106,8 @@ export class LockerService {
     attempt.codeVerified = true;
     if (grant.lockerId !== attempt.lockerId) return this.failClosed(attempt, "WRONG_LOCKER");
     if (grant.revoked) return this.failClosed(attempt, "GRANT_REVOKED");
-    await this.askForPhoto(attempt);
+    // Finding a dead lock now saves the person a gesture and an AI call.
+    if (!(await this.askForPhoto(attempt))) return this.failClosed(attempt, "LOCK_UNREACHABLE");
     return attempt;
   }
 
@@ -157,18 +158,18 @@ export class LockerService {
     if (!policy.allow && policy.reason === "AI_HOLD" && attempt.triesLeft > 1) {
       attempt.triesLeft--;
       attempt.retrying = true;
-      await this.askForPhoto(attempt);
+      if (!(await this.askForPhoto(attempt))) return this.failClosed(attempt, "LOCK_UNREACHABLE");
       return attempt;
     }
     return this.failClosed(attempt, ai.status === "OK" ? policy.reason : ai.status);
   }
 
   /** Always a new challenge, so a retry can't reuse the last photo's gesture. */
-  private async askForPhoto(attempt: Attempt): Promise<void> {
+  private async askForPhoto(attempt: Attempt): Promise<boolean> {
     const others = CHALLENGES.filter((challenge) => challenge !== attempt.challenge);
     attempt.challenge = others[randomInt(others.length)]!;
     attempt.state = "AWAITING_PHOTO";
-    await this.deps.lock.send("SHOW", `Do this:|${attempt.challenge}`);
+    return (await this.deps.lock.send("SHOW", `Do this:|${attempt.challenge}`)).ok;
   }
 
   private record(attempt: Attempt, imageDataUrl: string, ai: AiResult, policy: string, lockAck: string): void {

@@ -118,6 +118,16 @@ To score the AI on your own photos, put JPEGs in `gateway/photos/`, which git ig
 pnpm zerog photos photos
 ```
 
+## Use a phone
+
+Phones need HTTPS for the camera, so run a tunnel to the gateway:
+
+```bash
+ngrok http --url=<your domain> 8080
+```
+
+Set `KIOSK_URL=https://<your domain>` in `.env`. `pnpm arkiv grant` then also prints a QR code of the access link, so anyone with the code can scan it and go straight to the gesture. Anyone holding the link can try the door, so treat the code like a key. Free ngrok domains may show a warning page first, with a **Visit Site** button.
+
 ## Flash the ESP8266
 
 ```bash
@@ -169,10 +179,6 @@ cd gateway && pnpm test && pnpm typecheck
 ```bash
 cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate_test && /tmp/gate_test
 ```
-
-## Not built yet
-
-- A tested phone run. Phones need HTTPS for the camera, so set `KIOSK_URL` to a tunnel.
 
 ## How we used AI
 

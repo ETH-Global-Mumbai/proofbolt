@@ -272,3 +272,12 @@ test("a retry doesn't extend the attempt, and an expired one is refused", async 
   await service.submitPhoto(attempt.id, PHOTO);
   assert.equal(attempt.reason, "ATTEMPT_EXPIRED");
 });
+
+test("lock offline at the start: refused before the gesture, with no AI call", async (t) => {
+  const { verified, lock, log } = await setup(t);
+  await lock.close();
+  const attempt = await verified();
+  assert.equal(attempt.state, "DENIED");
+  assert.equal(attempt.reason, "LOCK_UNREACHABLE");
+  assert.equal(log.records.length, 0);
+});
