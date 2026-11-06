@@ -4,78 +4,173 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Locker status</title>
+  <link rel="stylesheet" href="/kiosk.css">
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 16px; }
-    #state { font-size: 24px; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
-    small { opacity: 0.7; overflow-wrap: anywhere; }
+    body { display: block; }
+    .page { max-width: 720px; margin: 0 auto; }
+    .page > * + * { margin-top: 16px; }
+    .card { max-width: none; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px; }
+    header strong { font-size: 18px; }
+    header span { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .state { display: flex; gap: 14px; align-items: flex-start; }
+    .dot { flex: none; width: 14px; height: 14px; margin-top: 8px; border-radius: 50%; background: var(--muted); }
+    .good .dot { background: var(--accent); }
+    .warn .dot { background: var(--warn); }
+    .bad .dot { background: var(--bad); }
+    .state h1 { margin-bottom: 4px; }
+    .state p { margin: 0; color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .stats .card { padding: 16px; }
+    .stats b { display: block; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .stats span { color: var(--muted); font-size: 13px; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    .row { display: grid; grid-template-columns: 76px 1fr auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+    .row time { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+    .row .what { font-weight: 600; }
+    .row .what.opened { color: var(--accent); }
+    .row .why { grid-column: 2 / -1; color: var(--muted); font-size: 14px; }
+    .row a { color: var(--accent); font-size: 14px; white-space: nowrap; }
+    .row .pending { color: var(--muted); font-size: 14px; white-space: nowrap; }
+    .empty { margin: 0; color: var(--muted); }
+    .source { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+    .source code { font: 12px ui-monospace, monospace; }
   </style>
 </head>
 <body>
-  <h1 id="title">Locker</h1>
-  <p id="state">Reading Arkiv…</p>
-  <h2>Recent attempts</h2>
-  <table>
-    <thead><tr><th>Time</th><th>Result</th><th>Reason</th><th>0G request</th><th>0G record</th></tr></thead>
-    <tbody id="attempts"></tbody>
-  </table>
-  <p><small id="source"></small></p>
+  <div class="page">
+    <header><strong id="title">Locker</strong><span id="updated" aria-live="off"></span></header>
+
+    <section class="card state" id="stateCard" aria-live="polite">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1 id="state">Reading Arkiv…</h1>
+        <p id="stateText"></p>
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="card"><b id="total">–</b><span>Recent attempts</span></div>
+      <div class="card"><b id="opened">–</b><span>Opened</span></div>
+      <div class="card"><b id="refused">–</b><span>Refused</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Recent attempts</h2>
+      <div id="attempts"><p class="empty">Nothing yet.</p></div>
+    </section>
+
+    <p class="source" id="source"></p>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
+    const REFRESH_MS = 5000;
+    const PUBLISH_WINDOW_MS = 5 * 60 * 1000;
 
-    function describe(locker) {
-      if (!locker) return "Gateway offline. The door stays locked.";
-      return locker.lockReachable ? "Online. It opens only when every check passes." : "Lock not responding. The door stays locked.";
+    const REASONS = {
+      AI_HOLD: "The AI couldn't confirm the gesture",
+      AI_ALERT: "The AI saw a screen, a printed picture or text",
+      ATTEMPT_EXPIRED: "The attempt took too long",
+      NO_GRANT: "The access had ended",
+      GRANT_EXPIRED: "The access had expired",
+      GRANT_REVOKED: "The access had been cancelled",
+      WRONG_LOCKER: "The access was for another locker",
+      ARKIV_UNREACHABLE: "Arkiv couldn't be read",
+      "0G_UNREACHABLE": "The 0G AI couldn't be reached",
+      AI_UNAVAILABLE: "The 0G AI couldn't be reached",
+      INVALID_OUTPUT: "The AI gave no clear answer",
+      LOCK_UNREACHABLE: "The check passed, but the lock didn't respond",
+    };
+
+    let lastRead = null;
+
+    function setState(kind, title, text) {
+      $("stateCard").className = `card state ${kind}`;
+      $("state").textContent = title;
+      $("stateText").textContent = text;
     }
 
-    function proofCell(decision) {
-      const td = document.createElement("td");
-      if (!decision) {
-        td.textContent = "-";
-        return td;
+    function showLocker(locker) {
+      if (!locker) {
+        setState("bad", "Gateway offline", "It stopped renewing its record on Arkiv, so the record expired by itself. The door stays locked.");
+      } else if (!locker.lockReachable) {
+        setState("warn", "Lock not responding", "The gateway is running but can't reach the lock. The door stays locked.");
+      } else {
+        const left = locker.expiresInSeconds > 0 ? ` This record expires in ${locker.expiresInSeconds} s unless the gateway renews it.` : "";
+        setState("good", "Online", `It opens only when every check passes.${left}`);
       }
-      const link = document.createElement("a");
-      link.href = `https://chainscan-galileo.0g.ai/tx/${decision.anchorTx}`;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = `${decision.storageRoot.slice(0, 10)}…`;
-      td.append(link);
-      return td;
     }
 
-    function cell(text) {
-      const td = document.createElement("td");
-      td.textContent = text;
-      return td;
+    function when(at) {
+      const date = new Date(at);
+      const today = date.toDateString() === new Date().toDateString();
+      return today
+        ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : date.toLocaleDateString([], { day: "numeric", month: "short" });
+    }
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      node.className = className;
+      node.textContent = text;
+      return node;
+    }
+
+    function row(attempt, decisions) {
+      const opened = attempt.outcome === "OPENED";
+      const wrapper = element("div", "row", "");
+      const time = element("time", "", when(attempt.at));
+      time.title = new Date(attempt.at).toLocaleString();
+      wrapper.append(time, element("span", `what ${opened ? "opened" : ""}`, opened ? "Opened" : "Refused"));
+
+      const decision = decisions.find((item) => item.attemptId === attempt.attemptId);
+      if (decision) {
+        const link = element("a", "", "0G record");
+        link.href = `https://chainscan-galileo.0g.ai/tx/${decision.anchorTx}`;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.title = `Stored at ${decision.storageRoot}`;
+        wrapper.append(link);
+      } else {
+        // An older record with no link won't get one by waiting, so don't imply that it will.
+        const recent = Date.now() - attempt.at < PUBLISH_WINDOW_MS;
+        wrapper.append(element("span", "pending", attempt.requestId && recent ? "Publishing…" : ""));
+      }
+      if (!opened) wrapper.append(element("span", "why", REASONS[attempt.reason] ?? attempt.reason));
+      return wrapper;
+    }
+
+    function tickUpdated() {
+      if (!lastRead) return;
+      const seconds = Math.round((Date.now() - lastRead) / 1000);
+      $("updated").textContent = seconds < 2 ? "Updated just now" : `Updated ${seconds} s ago`;
     }
 
     async function refresh() {
       const response = await fetch("/api/status").catch(() => null);
       const status = response?.ok ? await response.json() : null;
       if (!status) {
-        $("state").textContent = "Can't read Arkiv right now.";
+        setState("warn", "Can't read Arkiv right now", "This page only reads Arkiv, so it will catch up once Arkiv can be reached.");
         return;
       }
+      lastRead = Date.now();
+      tickUpdated();
       $("title").textContent = status.lockerId;
-      $("state").textContent = describe(status.locker);
-      $("attempts").replaceChildren(...status.attempts.map((attempt) => {
-        const row = document.createElement("tr");
-        row.append(
-          cell(new Date(attempt.at).toLocaleTimeString()),
-          cell(attempt.outcome),
-          cell(attempt.reason || "-"),
-          cell(attempt.requestId || "-"),
-          proofCell(status.decisions.find((decision) => decision.attemptId === attempt.attemptId)),
-        );
-        return row;
-      }));
-      $("source").textContent = `Read from Arkiv, entities written by ${status.gateway}`;
+      showLocker(status.locker);
+      const opened = status.attempts.filter((attempt) => attempt.outcome === "OPENED").length;
+      $("total").textContent = status.attempts.length;
+      $("opened").textContent = opened;
+      $("refused").textContent = status.attempts.length - opened;
+      if (status.attempts.length) {
+        $("attempts").replaceChildren(...status.attempts.map((attempt) => row(attempt, status.decisions)));
+      }
+      $("source").textContent = `Live from Arkiv, not from the gateway. Only records written by ${status.gateway} are shown.`;
     }
 
     refresh();
-    setInterval(refresh, 5000);
+    setInterval(refresh, REFRESH_MS);
+    setInterval(tickUpdated, 1000);
   </script>
 </body>
 </html>

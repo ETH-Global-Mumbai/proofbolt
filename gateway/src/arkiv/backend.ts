@@ -47,6 +47,8 @@ export interface GrantEntity {
 
 export interface LockerEntity {
   lockReachable: boolean;
+  /** Seconds until Arkiv removes this entity, unless the gateway extends it. */
+  expiresInSeconds?: number;
 }
 
 export interface AttemptEntity {
@@ -143,7 +145,7 @@ export class ArkivRead implements ArkivReader {
 
   async readStatus(lockerId: string): Promise<LockerStatus> {
     const lockers = await this.client
-      .select({ lockReachable: true })
+      .select({ lockReachable: true, $expiresAt: true })
       .from(LockerSchema)
       .ownedBy(this.gateway)
       .createdBy(this.gateway)
@@ -169,8 +171,14 @@ export class ArkivRead implements ArkivReader {
       .limit(RECENT_ATTEMPTS)
       .fetch();
     const locker = lockers.entities[0];
+    const timing = await this.client.getBlockTiming();
     return {
-      locker: locker ? { lockReachable: locker.lockReachable.value } : null,
+      locker: locker
+        ? {
+            lockReachable: locker.lockReachable.value,
+            expiresInSeconds: Number(locker.$expiresAt - timing.currentBlock) * timing.blockDuration,
+          }
+        : null,
       attempts: attempts.entities.map((row) => ({
         lockerId: row.lockerId.value,
         attemptId: row.attemptId.value,

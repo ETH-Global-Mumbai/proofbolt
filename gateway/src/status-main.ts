@@ -17,9 +17,11 @@ const gateway = required("ARKIV_GATEWAY_ADDRESS") as Hex;
 const lockerId = required("LOCK_ID");
 const arkiv = new ArkivRead(process.env.ARKIV_ACCESS_KEY ?? "", gateway);
 const page = readFileSync(new URL("../public/status.html", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../public/kiosk.css", import.meta.url), "utf8");
 
 const app = new Hono();
 app.get("/", (c) => c.html(page));
+app.get("/kiosk.css", (c) => c.text(styles, 200, { "content-type": "text/css" }));
 app.get("/api/status", async (c) => {
   try {
     return c.json({ lockerId, gateway, ...(await arkiv.readStatus(lockerId)) });
