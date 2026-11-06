@@ -40,6 +40,10 @@ class MemoryArkiv implements ArkivBackend {
     this.check();
     return this.grants.get(key) ?? null;
   }
+  async listGrants() {
+    this.check();
+    return [...this.grants].map(([id, grant]) => ({ id, label: "", revoked: grant.revoked, expiresInSeconds: 60 }));
+  }
   async findLocker() {
     this.check();
     return this.locker?.key ?? null;

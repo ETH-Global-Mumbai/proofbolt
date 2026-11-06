@@ -1,6 +1,6 @@
 // Wallet and grant admin for Arkiv. Run with: pnpm arkiv <command>
 import { randomBytes } from "node:crypto";
-import qrcode from "qrcode-terminal";
+import QRCode from "qrcode";
 import type { Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { hashCode } from "../grants.ts";
@@ -56,7 +56,7 @@ async function run(): Promise<void> {
     console.log(`Grant ${key}, expires in ${minutes} minutes`);
     const link = `${base}/?grant=${key}#code=${code}`;
     console.log(`Access link, which works for anyone who has it: ${link}`);
-    if (base.startsWith("https://")) qrcode.generate(link, { small: true });
+    if (base.startsWith("https://")) console.log(await QRCode.toString(link, { type: "terminal", small: true }));
     else console.log("Set KIOSK_URL to your https tunnel to get a QR code for phones.");
     break;
   }

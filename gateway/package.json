@@ -11,6 +11,7 @@
     "mock-lock": "tsx --env-file=.env src/lock/mock-main.ts",
     "lock-test": "tsx --env-file=.env src/lock/board-test.ts",
     "status": "tsx --env-file=.env src/status-main.ts",
+    "owner-page": "tsx --env-file=.env src/owner-main.ts",
     "arkiv": "tsx --env-file=.env src/arkiv/cli.ts",
     "zerog": "tsx --env-file=.env src/zerog/cli.ts",
     "test": "tsx --test test/*.test.ts",
@@ -22,13 +23,13 @@
     "@hono/node-server": "^1.13.7",
     "ethers": "6.13.1",
     "hono": "^4.6.14",
-    "qrcode-terminal": "^0.12.0",
+    "qrcode": "^1.5.4",
     "tsx": "^4.19.2",
     "viem": "^2.57.16"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/qrcode-terminal": "^0.12.2",
+    "@types/qrcode": "^1.5.6",
     "solc": "^0.8.38",
     "typescript": "^5.7.2"
   }

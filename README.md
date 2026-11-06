@@ -118,6 +118,16 @@ To score the AI on your own photos, put JPEGs in `gateway/photos/`, which git ig
 pnpm zerog photos photos
 ```
 
+## Manage access
+
+The owner's page creates access links with a QR code, lists live access with the time left, and revokes it. It reads and writes Arkiv directly.
+
+```bash
+pnpm owner-page
+```
+
+Open http://localhost:8070. It only accepts connections from this laptop, so **never put port 8070 on a tunnel**: it has no login and uses the gateway's wallet. `pnpm arkiv grant` and `pnpm arkiv revoke` do the same from a terminal.
+
 ## Use a phone
 
 Phones need HTTPS for the camera, so run a tunnel to the gateway:
@@ -186,6 +196,7 @@ This project was built with Claude Code, which wrote most of the code and docume
 
 ## Known limits
 
+- The owner's page has no login. It relies on being reachable only from this laptop.
 - An access link is a bearer secret, and the gesture shows a live hand, not whose hand it is. There is no identity check.
 - The gateway trusts its camera, so injected video could pass the challenge.
 - The gateway holds the policy and the signing key, so it is a trusted party.

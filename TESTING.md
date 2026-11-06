@@ -132,6 +132,18 @@ This uses up `GRANT_A`, so run it after the others. Start the gateway first.
 |---|---|---|---|---|
 | 21 | Revoked mid-attempt | Standard attempt. When the challenge appears, run `pnpm arkiv revoke GRANT_A`, wait for it to print `Revoked`, then do the correct gesture | `GRANT_REVOKED`, door stays shut, even if the AI said `OPEN` | [ ] |
 
+## The owner's page
+
+Run `pnpm owner-page` in a new terminal, then open http://localhost:8070.
+
+| # | Test | What to do | Expected result | Passed |
+|---|---|---|---|---|
+| 26 | Create access | Choose 10 minutes, add a note, click **Create access link** | A QR code and link appear within about 10 s, and the note appears in the list with its time left | [ ] |
+| 27 | Use it | Scan the QR code with your phone and do the gesture | The door opens | [ ] |
+| 28 | Revoke | Open the link again. When the challenge appears, click **Revoke**, then **Confirm revoke**, wait for "Revoked", then do the gesture | `GRANT_REVOKED`, door stays shut | [ ] |
+| 29 | Expiry | Create a 1-minute link, then wait | It disappears from the list by itself, and its link gives `NO_GRANT` | [ ] |
+| 30 | Not on the tunnel | With ngrok running, open `https://<your ngrok domain>:8070` or try port 8070 from another device | Doesn't load | [ ] |
+
 ## Check the public record
 
 Leave the gateway running until `[0g] anchored decision` stops appearing, about a minute per decision.

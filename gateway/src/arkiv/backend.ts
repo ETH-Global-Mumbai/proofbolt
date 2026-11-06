@@ -2,15 +2,17 @@
 // access codes, photos and keys stay off this public store. Grants hold only a hash of the code.
 import { createPublicClient, createWalletClient, ExpirationTime, NoEntityFoundError, SchemaMismatchError } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
-import { desc, eq } from "@arkiv-network/sdk/query";
+import { asc, desc, eq } from "@arkiv-network/sdk/query";
 import { bool, defineSchema, str, u64 } from "@arkiv-network/sdk/schema";
 import { formatEther, http, isHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { errorText } from "../log/errors.ts";
 
 export const GrantSchema = defineSchema("proofbolt.grant", {
   lockerId: str().indexed(),
   revoked: bool(),
   codeHash: str(),
+  label: str().optional(),
 });
 
 export const LockerSchema = defineSchema("proofbolt.locker", {
@@ -38,11 +40,21 @@ export const DecisionSchema = defineSchema("proofbolt.decision", {
 export const LOCKER_TTL_SECONDS = 60;
 const HISTORY_TTL_DAYS = 30;
 const RECENT_ATTEMPTS = 20;
+const MAX_LISTED_GRANTS = 50;
+const NONCE_RETRY_MS = 3000;
 
 export interface GrantEntity {
   lockerId: string;
   revoked: boolean;
   codeHash: string;
+}
+
+/** A grant as the owner's page lists it. */
+export interface GrantSummary {
+  id: string;
+  label: string;
+  revoked: boolean;
+  expiresInSeconds: number;
 }
 
 export interface LockerEntity {
@@ -76,12 +88,13 @@ export interface LockerStatus {
 
 export interface ArkivReader {
   getGrant(key: string): Promise<GrantEntity | null>;
+  listGrants(lockerId: string): Promise<GrantSummary[]>;
   findLocker(lockerId: string): Promise<string | null>;
   readStatus(lockerId: string): Promise<LockerStatus>;
 }
 
 export interface ArkivWriter {
-  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string): Promise<string>;
+  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string, label?: string): Promise<string>;
   revokeGrant(key: string): Promise<void>;
   createLocker(lockerId: string, lockReachable: boolean): Promise<string>;
   patchLocker(key: string, lockReachable: boolean): Promise<void>;
@@ -129,6 +142,25 @@ export class ArkivRead implements ArkivReader {
       if (error instanceof NoEntityFoundError || error instanceof SchemaMismatchError) return null;
       throw error;
     }
+  }
+
+  async listGrants(lockerId: string): Promise<GrantSummary[]> {
+    const { entities } = await this.client
+      .select({ $key: true, $expiresAt: true, revoked: true, label: true })
+      .from(GrantSchema)
+      .ownedBy(this.gateway)
+      .createdBy(this.gateway)
+      .where(eq("lockerId", lockerId))
+      .orderBy(asc("$expiresAt"))
+      .limit(MAX_LISTED_GRANTS)
+      .fetch();
+    const timing = await this.client.getBlockTiming();
+    return entities.map((row) => ({
+      id: row.$key,
+      label: row.label?.value ?? "",
+      revoked: row.revoked.value,
+      expiresInSeconds: Number(row.$expiresAt - timing.currentBlock) * timing.blockDuration,
+    }));
   }
 
   async findLocker(lockerId: string): Promise<string | null> {
@@ -214,16 +246,23 @@ export class Arkiv extends ArkivRead implements ArkivWriter {
   }
 
   private write<T>(task: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(task);
+    // The owner's page and the gateway share this wallet, so a write can lose a race for a nonce.
+    const attempt = () =>
+      task().catch(async (error) => {
+        if (!/nonce|replacement transaction/i.test(errorText(error))) throw error;
+        await new Promise((resolve) => setTimeout(resolve, NONCE_RETRY_MS));
+        return task();
+      });
+    const result = this.queue.then(attempt);
     this.queue = result.catch(() => undefined);
     return result;
   }
 
-  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string): Promise<string> {
+  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string, label = ""): Promise<string> {
     return this.write(async () => {
       const { entityKey } = await this.wallet.createEntity(
         GrantSchema,
-        { lockerId, revoked: false, codeHash },
+        { lockerId, revoked: false, codeHash, ...(label ? { label } : {}) },
         { expiration: ExpirationTime.fromSeconds(expiresInSeconds) },
       );
       return entityKey;
