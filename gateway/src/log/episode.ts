@@ -1,4 +1,4 @@
-// Hash-chained decision log. It stores what was decided and why, but never photos or World IDs.
+// Hash-chained decision log. It stores what was decided and why, but never photos or access codes.
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import type { AiStatus, AiDecision } from "../ai/types.ts";

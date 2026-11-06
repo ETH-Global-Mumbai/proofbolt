@@ -10,7 +10,7 @@
 
 | Data | Where it is | Why |
 |---|---|---|
-| World IDs | `data/enrollments.json` on the gateway | Public identifiers would let anyone link a person to their locker use |
+| Access codes | Only in the link given to a person. Arkiv holds a hash | A public code would let anyone try the door |
 | Photos | Nowhere. Only a hash is kept | They show people's hands and surroundings |
 | Lock signing key and wallet keys | `.env`, `secrets.h`, both ignored by git | Secrets |
 | Full decision records | 0G Storage | They are the audit log, and 0G's proofs protect them. Arkiv holds only the pointer |

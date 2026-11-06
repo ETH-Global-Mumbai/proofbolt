@@ -1,11 +1,11 @@
 # proofbolt
 
-A locker that opens only when a live grant on Arkiv, a human check, a 0G AI decision and a signed command all pass.
+A locker that opens only when a live grant on Arkiv, its secret access code, a 0G AI decision and a signed command all pass.
 
-**Current state:** runs on a real ESP8266 with a servo, the live 0G Router, Arkiv's Rabdi testnet and 0G's Galileo testnet. The human check in the demo is a stand-in page. Real World ID sign-in is implemented in [oidc.ts](gateway/src/world/oidc.ts) and tested against simulated responses, but it has not run against the live service, so this project makes no World ID prize claim.
+**Current state:** runs on a real ESP8266 with a servo, the live 0G Router, Arkiv's Rabdi testnet and 0G's Galileo testnet.
 
 ```
-Browser ── World ID check, camera photo ──> Gateway (laptop) ── 0G Router (AI decision)
+Browser ── access link, camera photo ─────> Gateway (laptop) ── 0G Router (AI decision)
                                                │ ───────────── Arkiv (grants, status) ──> Status page
                                      policy.ts decides
                                                │
@@ -34,7 +34,7 @@ pnpm mock-lock
 pnpm start
 ```
 
-Open http://localhost:8080. With `DEV_MOCKS=1`, World ID and the AI are fake and the seeded grant is `dev-grant`.
+The gateway prints a dev access link to open. With `DEV_MOCKS=1`, the AI is fake and grants are local.
 
 ## Check it yourself
 
@@ -68,7 +68,7 @@ pnpm arkiv check
 pnpm arkiv grant 10
 ```
 
-Open the kiosk link it prints. To revoke a grant, run `pnpm arkiv revoke <grant>`. The public status page reads only Arkiv, so it keeps working when the gateway is down:
+Open the access link it prints, which takes you straight to the gesture. Anyone with the link can try the gesture, so share it like a key. Arkiv holds only a hash of its code. To revoke a grant, run `pnpm arkiv revoke <grant>`. The public status page reads only Arkiv, so it keeps working when the gateway is down:
 
 ```bash
 pnpm status
@@ -106,7 +106,7 @@ Decisions made with `DEV_MOCKS=1` are fake and get published like any other. Dep
 
 ## Test the real 0G AI
 
-Set `OG_API_KEY` in `.env`. To use the real AI with a fake World ID, run:
+Set `OG_API_KEY` in `.env`. To use the real AI with no Arkiv or 0G publishing keys set, run:
 
 ```bash
 DEV_AI=LIVE pnpm start
@@ -172,8 +172,7 @@ cd firmware && g++ -std=c++17 -Iinclude test/gate_test.cpp -lcrypto -o /tmp/gate
 
 ## Not built yet
 
-- A live World ID run. It needs a client from https://auth.world.org/portal.
-- A phone page for the camera, which needs HTTPS.
+- A tested phone run. Phones need HTTPS for the camera, so set `KIOSK_URL` to a tunnel.
 
 ## How we used AI
 
@@ -181,6 +180,7 @@ This project was built with Claude Code, which wrote most of the code and docume
 
 ## Known limits
 
+- An access link is a bearer secret, and the gesture shows a live hand, not whose hand it is. There is no identity check.
 - The gateway trusts its camera, so injected video could pass the challenge.
 - The gateway holds the policy and the signing key, so it is a trusted party.
 - If Arkiv can't be read, every unlock is refused. If a status write or 0G upload fails, the door still works and publishing retries.

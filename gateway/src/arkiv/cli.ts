@@ -1,6 +1,8 @@
 // Wallet and grant admin for Arkiv. Run with: pnpm arkiv <command>
+import { randomBytes } from "node:crypto";
 import type { Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { hashCode } from "../grants.ts";
 import { errorText } from "../log/errors.ts";
 import { Arkiv } from "./backend.ts";
 
@@ -38,7 +40,7 @@ async function run(): Promise<void> {
     console.log(`Wallet ${arkiv.address}, balance ${balance} tGLM`);
     if (Number(balance) === 0) throw new Error("This wallet has no tGLM. Send the faucet's tokens to the address above");
     console.log(`Read: ${(await arkiv.readStatus(lockerId)).attempts.length} recent attempts`);
-    const key = await arkiv.createGrant(lockerId, 120);
+    const key = await arkiv.createGrant(lockerId, 120, hashCode(randomBytes(16).toString("base64url")));
     console.log(`Write: test grant ${key}, expires in 2 minutes`);
     console.log(`Read back: ${JSON.stringify(await arkiv.getGrant(key))}`);
     break;
@@ -46,14 +48,17 @@ async function run(): Promise<void> {
   case "grant": {
     const minutes = Number(argument ?? 1440);
     if (!Number.isInteger(minutes) || minutes < 1) throw new Error("Minutes must be a whole number");
-    const key = await connect().createGrant(env("LOCK_ID"), minutes * 60);
+    // The code exists only in this link. Arkiv gets its hash, so nobody can recover it from there.
+    const code = randomBytes(16).toString("base64url");
+    const key = await connect().createGrant(env("LOCK_ID"), minutes * 60, hashCode(code));
+    const base = process.env.KIOSK_URL ?? `http://localhost:${process.env.PORT ?? 8080}`;
     console.log(`Grant ${key}, expires in ${minutes} minutes`);
-    console.log(`Kiosk: http://localhost:${process.env.PORT ?? 8080}/?grant=${key}`);
+    console.log(`Access link, which works for anyone who has it: ${base}/?grant=${key}#code=${code}`);
     break;
   }
   case "revoke": {
     if (!argument) throw new Error(USAGE);
-    await connect().patchGrant(argument, { revoked: true });
+    await connect().revokeGrant(argument);
     console.log(`Revoked ${argument}`);
     break;
   }

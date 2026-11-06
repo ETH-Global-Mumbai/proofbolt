@@ -11,7 +11,8 @@ import {
 } from "../src/arkiv/backend.ts";
 import { LockerBoard } from "../src/arkiv/board.ts";
 import { ArkivGrants } from "../src/arkiv/grants.ts";
-import { FakeDecider, FakeWorld } from "../src/dev.ts";
+import { FakeDecider } from "../src/dev.ts";
+import { hashCode } from "../src/grants.ts";
 import { LockClient } from "../src/lock/client.ts";
 import { MockLock } from "../src/lock/mock.ts";
 import { EpisodeLog } from "../src/log/episode.ts";
@@ -20,8 +21,7 @@ import { LockerService } from "../src/service.ts";
 
 const KEY = Buffer.alloc(32, 7);
 const PHOTO = "data:image/jpeg;base64,AAAA";
-const ALICE = { iss: "world", sub: "alice" };
-const MALLORY = { iss: "world", sub: "mallory" };
+const CODE = "secret-code";
 
 class MemoryArkiv implements ArkivBackend {
   grants = new Map<string, GrantEntity>();
@@ -48,15 +48,15 @@ class MemoryArkiv implements ArkivBackend {
     this.check();
     return { locker: this.locker, attempts: this.attempts, decisions: this.decisions };
   }
-  async createGrant(lockerId: string) {
+  async createGrant(lockerId: string, _expiresInSeconds = 3600, codeHash = hashCode(CODE)) {
     this.check();
     const key = `g${this.grants.size + 1}`;
-    this.grants.set(key, { lockerId, revoked: false, enrolled: false });
+    this.grants.set(key, { lockerId, revoked: false, codeHash });
     return key;
   }
-  async patchGrant(key: string, changes: Partial<GrantEntity>) {
+  async revokeGrant(key: string) {
     this.check();
-    Object.assign(this.grants.get(key)!, changes);
+    this.grants.get(key)!.revoked = true;
   }
   async createLocker(_lockerId: string, lockReachable: boolean) {
     this.check();
@@ -91,25 +91,18 @@ async function setup(t: TestContext, decider = new FakeDecider()) {
 
   const arkiv = new MemoryArkiv();
   const grants = new ArkivGrants(arkiv);
-  const world = new FakeWorld(ALICE);
   const log = new EpisodeLog();
   const service = new LockerService({
     lockerId: "locker-1",
     grants,
-    world,
     decider,
     log,
     reporter: new LockerBoard(arkiv, "locker-1"),
     lock: new LockClient(url, "locker-1", KEY),
   });
 
-  async function verified(grantId: string) {
-    const attempt = service.create(grantId);
-    await service.startWorld(attempt.id);
-    await service.finishWorld({ state: attempt.pendingWorld!.state, code: "ok" });
-    return attempt;
-  }
-  return { lock, arkiv, grants, world, log, service, verified };
+  const verified = (grantId: string, code = CODE) => service.create(grantId, code);
+  return { lock, arkiv, grants, log, service, verified };
 }
 
 test("a grant on Arkiv opens the door and the result is published", async (t) => {
@@ -120,17 +113,24 @@ test("a grant on Arkiv opens the door and the result is published", async (t) =>
 
   assert.equal(attempt.state, "OPENED");
   assert.equal(lock.openCount, 1);
-  assert.equal(arkiv.grants.get(key)!.enrolled, true);
   assert.equal(arkiv.attempts[0]!.outcome, "OPENED");
   assert.ok(arkiv.attempts[0]!.requestId);
 });
 
-test("nothing published to Arkiv carries a World ID", async (t) => {
+test("nothing published to Arkiv carries the access code", async (t) => {
   const { arkiv, service, verified } = await setup(t);
   const attempt = await verified(await arkiv.createGrant("locker-1"));
   await service.submitPhoto(attempt.id, PHOTO);
   const published = JSON.stringify([...arkiv.grants.values(), ...arkiv.attempts]);
-  assert.ok(!published.includes("alice"));
+  assert.ok(!published.includes(CODE));
+});
+
+test("a wrong code or unknown grant writes nothing, so it can't drain the wallet", async (t) => {
+  const { arkiv, verified } = await setup(t);
+  const key = await arkiv.createGrant("locker-1");
+  assert.equal((await verified(key, "wrong")).reason, "BAD_CODE");
+  assert.equal((await verified("nope")).reason, "NO_GRANT");
+  assert.equal(arkiv.attempts.length, 0);
 });
 
 test("a grant that expired on Arkiv opens nothing", async (t) => {
@@ -144,20 +144,20 @@ test("a grant that expired on Arkiv opens nothing", async (t) => {
   assert.equal(arkiv.attempts[0]!.reason, "NO_GRANT");
 });
 
-test("revoking on Arkiv stops an attempt that is already past World ID", async (t) => {
+test("revoking on Arkiv stops an attempt that is already past the code check", async (t) => {
   const { arkiv, verified, service, lock } = await setup(t);
   const key = await arkiv.createGrant("locker-1");
   const attempt = await verified(key);
-  await arkiv.patchGrant(key, { revoked: true });
+  await arkiv.revokeGrant(key);
   await service.submitPhoto(attempt.id, PHOTO);
   assert.equal(attempt.reason, "GRANT_REVOKED");
   assert.equal(lock.openCount, 0);
 });
 
-test("a revoked grant is refused at the World step", async (t) => {
+test("a revoked grant is refused at the start", async (t) => {
   const { arkiv, verified } = await setup(t);
   const key = await arkiv.createGrant("locker-1");
-  await arkiv.patchGrant(key, { revoked: true });
+  await arkiv.revokeGrant(key);
   assert.equal((await verified(key)).reason, "GRANT_REVOKED");
 });
 
@@ -168,7 +168,7 @@ test("a grant for another locker is refused", async (t) => {
   assert.equal(lock.openCount, 0);
 });
 
-test("Arkiv down at the World step: door stays shut", async (t) => {
+test("Arkiv down at the start: door stays shut", async (t) => {
   const { arkiv, verified, lock } = await setup(t);
   const key = await arkiv.createGrant("locker-1");
   arkiv.down = true;
@@ -197,53 +197,6 @@ test("a failed status write doesn't stop an allowed door", async (t) => {
   await service.submitPhoto(attempt.id, PHOTO);
   assert.equal(attempt.state, "OPENED");
   assert.equal(lock.openCount, 1);
-});
-
-test("if enrollment can't reach Arkiv, the person isn't linked", async () => {
-  const arkiv = new MemoryArkiv();
-  const grants = new ArkivGrants(arkiv);
-  const key = await arkiv.createGrant("locker-1");
-  arkiv.patchGrant = async () => {
-    throw new Error("Arkiv down");
-  };
-  await assert.rejects(grants.enroll(key, ALICE));
-  assert.equal((await grants.get(key))!.subject, null);
-});
-
-test("losing the local enrollment file can't reopen a grant to someone new", async () => {
-  const arkiv = new MemoryArkiv();
-  const key = await arkiv.createGrant("locker-1");
-  assert.equal(await new ArkivGrants(arkiv).enroll(key, ALICE), true);
-  assert.equal(await new ArkivGrants(arkiv).enroll(key, MALLORY), false);
-});
-
-test("two people racing for one grant: only one is linked", async () => {
-  const arkiv = new MemoryArkiv();
-  const grants = new ArkivGrants(arkiv);
-  const key = await arkiv.createGrant("locker-1");
-  const results = await Promise.all([grants.enroll(key, ALICE), grants.enroll(key, MALLORY)]);
-  assert.deepEqual(results.sort(), [false, true]);
-});
-
-test("one person holds one live grant, and revoking frees them", async () => {
-  const arkiv = new MemoryArkiv();
-  const grants = new ArkivGrants(arkiv);
-  const first = await arkiv.createGrant("locker-1");
-  const second = await arkiv.createGrant("locker-1");
-  assert.equal(await grants.enroll(first, ALICE), true);
-  assert.equal(await grants.enroll(second, ALICE), false);
-  await arkiv.patchGrant(first, { revoked: true });
-  assert.equal(await grants.enroll(second, ALICE), true);
-});
-
-test("an expired grant frees the person too", async () => {
-  const arkiv = new MemoryArkiv();
-  const grants = new ArkivGrants(arkiv);
-  const first = await arkiv.createGrant("locker-1");
-  const second = await arkiv.createGrant("locker-1");
-  await grants.enroll(first, ALICE);
-  arkiv.grants.delete(first);
-  assert.equal(await grants.enroll(second, ALICE), true);
 });
 
 test("only entities created and still owned by the gateway are trusted", () => {

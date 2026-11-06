@@ -12,7 +12,7 @@ This is a hackathon prototype, and we haven't tested it with outside users. The 
 
 ## Can they try it today
 
-Anyone can read the live data with the query in the [README](../README.md#check-it-yourself). Running a locker takes this repo, an ESP8266 and the setup steps in the README. It runs on testnets, and the World ID check is currently a stand-in.
+Anyone can read the live data with the query in the [README](../README.md#check-it-yourself). Running a locker takes this repo, an ESP8266 and the setup steps in the README. It runs on testnets, and access is by secret link, with no identity check.
 
 ## Will we keep building it
 

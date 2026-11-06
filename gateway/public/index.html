@@ -3,103 +3,311 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Locker</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
-    video { width: 100%; background: #111; border-radius: 8px; }
-    button, a.button { display: block; width: 100%; padding: 14px; margin: 12px 0; font-size: 16px; text-align: center; box-sizing: border-box; }
-    #state { font-size: 20px; font-weight: 600; }
-    #challenge { font-size: 28px; font-weight: 700; margin: 12px 0; }
-    [hidden] { display: none !important; }
-  </style>
+  <title>Unlock locker</title>
+  <link rel="stylesheet" href="/kiosk.css">
 </head>
 <body>
-  <h1>Locker</h1>
-  <p id="state">Enter your grant to begin.</p>
-  <p id="challenge" hidden></p>
+  <main class="card" aria-live="polite">
+    <ol class="steps" id="steps">
+      <li>Access</li>
+      <li>Gesture</li>
+      <li>Door</li>
+    </ol>
 
-  <form id="start">
-    <label>Grant ID <input id="grant" value="dev-grant" required></label>
-    <button>Request unlock</button>
-  </form>
+    <section id="start" hidden>
+      <h1 id="startTitle">Unlock your locker</h1>
+      <p class="lead" id="startText"></p>
+      <button class="button primary" id="startButton" hidden>Unlock</button>
+    </section>
 
-  <section id="camera" hidden>
-    <video id="video" autoplay playsinline muted></video>
-    <p>Point the camera at your hand only.</p>
-    <button id="capture">Take photo</button>
-  </section>
+    <section id="photo" hidden>
+      <p class="retry" id="retry" hidden></p>
+      <p class="eyebrow">Show this to the camera</p>
+      <p class="challenge" id="challenge"></p>
+      <p class="note">Keep just your hand in view.</p>
+      <div class="camera" id="cameraBox">
+        <video id="video" autoplay playsinline muted></video>
+        <img id="frozen" alt="The photo you took" hidden>
+        <div class="count" id="count" hidden></div>
+        <div class="checking" id="checking" hidden><div class="spinner"></div><span>Checking your gesture…</span></div>
+      </div>
+      <div class="camera-error" id="cameraError" hidden></div>
+      <button class="button primary" id="capture">Take photo in 3 seconds</button>
+      <div class="meta"><span>Or press Space</span><span id="timeLeft"></span></div>
+    </section>
 
-  <button id="again" hidden>Start over</button>
+    <section id="opened" hidden>
+      <div class="result-mark good" aria-hidden="true">✓</div>
+      <h1>Door open</h1>
+      <p class="lead" id="openText"></p>
+      <div class="progress"><div id="openBar"></div></div>
+      <p class="code" id="openCode"></p>
+      <button class="button" id="doneButton">Done</button>
+    </section>
+
+    <section id="denied" hidden>
+      <div class="result-mark bad" aria-hidden="true">✕</div>
+      <h1 id="deniedTitle"></h1>
+      <p class="lead" id="deniedText"></p>
+      <button class="button primary" id="againButton">Try again</button>
+      <p class="code" id="deniedCode"></p>
+    </section>
+  </main>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const params = new URLSearchParams(location.search);
-    const attemptId = params.get("attempt");
-    if (params.get("grant")) $("grant").value = params.get("grant");
+    const OPEN_SECONDS = 5;
+    const COUNTDOWN_SECONDS = 3;
+    const SECTIONS = ["start", "photo", "opened", "denied"];
+    const STEP_OF = { start: 0, photo: 1, opened: 2, denied: 2 };
 
-    const messages = {
-      AWAITING_PHOTO: "World ID verified. Do the challenge.",
-      DECIDING: "Checking…",
-      OPENED: "Door open.",
+    const CONTACT = "Ask whoever gave you access.";
+    const REASONS = {
+      AI_HOLD: ["We couldn't confirm your gesture", "Try again with your hand in good light, filling more of the frame.", true],
+      AI_ALERT: ["We need a real hand", "The photo looked like a screen, a printed picture, or contained text. Show your own hand to the camera.", true],
+      ATTEMPT_EXPIRED: ["That took too long", "For security, each attempt lasts 3 minutes. Start again when you're ready.", true],
+      NO_GRANT: ["This access link has ended", `It may have expired or been mistyped. ${CONTACT}`, false],
+      BAD_CODE: ["This access link isn't valid", `It may be incomplete, so try opening it again. ${CONTACT}`, false],
+      CODE_NOT_VERIFIED: ["This access link isn't valid", "Please open it again.", false],
+      GRANT_EXPIRED: ["This access has expired", CONTACT, false],
+      GRANT_REVOKED: ["This access was cancelled", CONTACT, false],
+      WRONG_LOCKER: ["This link is for another locker", "Check you're at the right locker.", false],
+      ARKIV_UNREACHABLE: ["We can't check your access right now", "The door stays locked until the access service is back. Try again in a moment.", true],
+      "0G_UNREACHABLE": ["The AI check is unavailable", "The door stays locked until it's back. Try again in a moment.", true],
+      AI_UNAVAILABLE: ["The AI check is unavailable", "The door stays locked until it's back. Try again in a moment.", true],
+      INVALID_OUTPUT: ["The AI check gave no clear answer", "The door stayed locked. Please try again.", true],
+      LOCK_UNREACHABLE: ["The check passed, but the lock didn't respond", "The door stayed locked. Try again in a moment.", true],
     };
 
-    function render(attempt) {
-      $("start").hidden = true;
-      $("state").textContent = attempt.state === "DENIED"
-        ? `Stayed locked: ${attempt.reason}`
-        : (messages[attempt.state] ?? attempt.state);
-      $("challenge").hidden = attempt.state !== "AWAITING_PHOTO";
-      $("challenge").textContent = attempt.challenge ?? "";
-      $("camera").hidden = attempt.state !== "AWAITING_PHOTO";
-      $("again").hidden = attempt.state !== "OPENED" && attempt.state !== "DENIED";
-      if (attempt.state === "AWAITING_PHOTO") startCamera();
+    const params = new URLSearchParams(location.search);
+    const linkCode = new URLSearchParams(location.hash.slice(1)).get("code");
+    let credentials = null;
+    let current = null;
+    let counting = false;
+    let clock = null;
+
+    // Convenience only: without browser storage, a refresh just asks for the link again.
+    function remember(value) {
+      credentials = value;
+      try { sessionStorage.setItem("access", JSON.stringify(value)); } catch {}
+    }
+    function remembered() {
+      try { return JSON.parse(sessionStorage.getItem("access")); } catch { return null; }
     }
 
-    async function startCamera() {
-      if ($("video").srcObject) return;
+    function show(section) {
+      for (const id of SECTIONS) $(id).hidden = id !== section;
+      [...$("steps").children].forEach((step, index) => {
+        step.className = index < STEP_OF[section] ? "done" : index === STEP_OF[section] ? "current" : "";
+      });
+    }
+
+    function readable(challenge) {
+      const text = (challenge ?? "").toLowerCase();
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function showStart(error) {
+      show("start");
+      $("startTitle").textContent = error ? "We couldn't reach the locker" : "Unlock your locker";
+      $("startText").textContent = error
+        ? "Check your connection and try again."
+        : credentials
+          ? "Show a quick hand gesture to the camera to open it."
+          : "Open the access link you were given to get started.";
+      $("startButton").hidden = !credentials;
+      $("startButton").disabled = false;
+      $("startButton").textContent = error ? "Try again" : "Unlock";
+    }
+
+    async function begin() {
+      $("startButton").disabled = true;
+      $("startButton").textContent = "Starting…";
       try {
-        $("video").srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (error) {
-        $("state").textContent = `Camera unavailable: ${error.message}`;
+        const response = await fetch("/api/attempts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(credentials),
+        });
+        if (!response.ok) throw new Error();
+        const attempt = await response.json();
+        // Keeps a refresh on this attempt, and takes the secret code out of the address bar.
+        history.replaceState(null, "", `/?attempt=${attempt.id}`);
+        render(attempt);
+      } catch {
+        showStart(true);
       }
     }
 
-    $("start").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const response = await fetch("/api/attempts", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ grantId: $("grant").value }),
-      });
-      const attempt = await response.json();
-      location.href = `/api/attempts/${attempt.id}/world`;
-    });
+    function render(attempt) {
+      current = attempt;
+      clearInterval(clock);
+      if (attempt.state === "AWAITING_PHOTO") return renderPhoto(attempt);
+      stopCamera();
+      if (attempt.state === "OPENED") return renderOpened(attempt);
+      if (attempt.state === "DENIED") return renderDenied(attempt);
+      if (attempt.state === "DECIDING") {
+        setTimeout(() => refresh(attempt.id), 1000);
+        return;
+      }
+      showStart();
+    }
 
-    $("capture").addEventListener("click", async () => {
+    function renderPhoto(attempt) {
+      show("photo");
+      counting = false;
+      $("challenge").textContent = readable(attempt.challenge);
+      $("retry").hidden = !attempt.retrying;
+      if (attempt.retrying) {
+        const tries = attempt.triesLeft === 1 ? "Last try" : `${attempt.triesLeft} tries left`;
+        $("retry").textContent = `We couldn't confirm that one, so try this one instead. ${tries}.`;
+      }
+      $("video").hidden = false;
+      $("frozen").hidden = true;
+      $("count").hidden = true;
+      $("checking").hidden = true;
+      $("capture").disabled = false;
+      startCamera();
+      tickTimeLeft();
+      clock = setInterval(tickTimeLeft, 1000);
+    }
+
+    function tickTimeLeft() {
+      const seconds = Math.max(0, Math.ceil((current.expiresAt - Date.now()) / 1000));
+      $("timeLeft").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left`;
+    }
+
+    function renderOpened(attempt) {
+      show("opened");
+      $("openCode").textContent = attempt.requestId ? `0G request ${attempt.requestId}` : "";
+      const started = Date.now();
+      const tick = () => {
+        const left = OPEN_SECONDS - (Date.now() - started) / 1000;
+        if (left <= 0) {
+          clearInterval(clock);
+          $("openText").textContent = "The door has locked again.";
+          $("openBar").style.width = "0";
+          return;
+        }
+        $("openText").textContent = `Locks again in ${Math.ceil(left)} seconds.`;
+        $("openBar").style.width = `${(left / OPEN_SECONDS) * 100}%`;
+      };
+      tick();
+      clock = setInterval(tick, 100);
+    }
+
+    function renderDenied(attempt) {
+      show("denied");
+      const [title, text, canRetry] = REASONS[attempt.reason] ?? ["The door stayed locked", "Please try again.", true];
+      $("deniedTitle").textContent = title;
+      $("deniedText").textContent = text;
+      $("againButton").hidden = !canRetry;
+      $("deniedCode").textContent = attempt.reason ?? "";
+    }
+
+    async function startCamera() {
+      $("cameraError").hidden = true;
+      $("cameraBox").hidden = false;
+      if ($("video").srcObject) return;
+      try {
+        $("video").srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        $("capture").textContent = "Take photo in 3 seconds";
+        $("capture").onclick = beginCountdown;
+      } catch {
+        $("cameraBox").hidden = true;
+        $("cameraError").hidden = false;
+        $("cameraError").textContent = navigator.mediaDevices
+          ? "We couldn't open the camera. Allow camera access for this page, then try again."
+          : "Camera access needs a secure (https) link or localhost. Open this page that way.";
+        $("capture").textContent = "Try the camera again";
+        $("capture").onclick = startCamera;
+      }
+    }
+
+    function stopCamera() {
+      $("video").srcObject?.getTracks().forEach((track) => track.stop());
+      $("video").srcObject = null;
+    }
+
+    function beginCountdown() {
+      const video = $("video");
+      if (counting || !video.srcObject || !video.videoWidth) return;
+      counting = true;
+      $("capture").disabled = true;
+      let left = COUNTDOWN_SECONDS;
+      $("count").hidden = false;
+      $("count").textContent = left;
+      const timer = setInterval(() => {
+        left--;
+        if (left > 0) {
+          $("count").textContent = left;
+          return;
+        }
+        clearInterval(timer);
+        $("count").hidden = true;
+        sendPhoto();
+      }, 1000);
+    }
+
+    async function sendPhoto() {
       const video = $("video");
       const canvas = document.createElement("canvas");
       const scale = Math.min(1, 640 / video.videoWidth);
       canvas.width = video.videoWidth * scale;
       canvas.height = video.videoHeight * scale;
       canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      $("state").textContent = messages.DECIDING;
-      $("camera").hidden = true;
-      const response = await fetch(`/api/attempts/${attemptId}/photo`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image: canvas.toDataURL("image/jpeg", 0.8) }),
-      });
-      video.srcObject?.getTracks().forEach((track) => track.stop());
-      video.srcObject = null;
-      const body = await response.json();
-      if (response.ok) render(body);
-      else $("state").textContent = body.error;
+      const image = canvas.toDataURL("image/jpeg", 0.8);
+      $("frozen").src = image;
+      $("frozen").hidden = false;
+      video.hidden = true;
+      $("checking").hidden = false;
+      try {
+        const response = await fetch(`/api/attempts/${current.id}/photo`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ image }),
+        });
+        const body = await response.json();
+        if (response.ok) render(body);
+        else await refresh(current.id);
+      } catch {
+        // The result may still have gone through, so ask rather than assume.
+        setTimeout(() => refresh(current.id), 2000);
+      }
+    }
+
+    async function refresh(id) {
+      try {
+        const response = await fetch(`/api/attempts/${id}`);
+        if (response.status === 404) return showStart();
+        render(await response.json());
+      } catch {
+        setTimeout(() => refresh(id), 2000);
+      }
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.code !== "Space" || $("photo").hidden || $("capture").disabled) return;
+      event.preventDefault();
+      $("capture").click();
     });
 
-    $("again").addEventListener("click", () => { location.href = "/"; });
+    $("startButton").addEventListener("click", begin);
+    $("againButton").addEventListener("click", begin);
+    $("doneButton").addEventListener("click", () => {
+      history.replaceState(null, "", "/");
+      clearInterval(clock);
+      showStart();
+    });
 
-    if (attemptId) {
-      fetch(`/api/attempts/${attemptId}`).then((r) => r.json()).then(render);
+    credentials = remembered();
+    if (params.get("grant") && linkCode) {
+      remember({ grantId: params.get("grant"), code: linkCode });
+      begin();
+    } else if (params.get("attempt")) {
+      refresh(params.get("attempt"));
+    } else {
+      showStart();
     }
   </script>
 </body>

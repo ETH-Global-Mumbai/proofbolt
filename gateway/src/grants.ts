@@ -1,26 +1,29 @@
-// Grants and the local store. World identifiers stay on this machine and never go on-chain.
+// A grant is permission to open one locker, proved by holding its secret code. Only a hash of the
+// code is ever stored, so reading a grant doesn't reveal how to use it.
+import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-
-export interface Subject {
-  iss: string;
-  sub: string;
-}
 
 export interface Grant {
   id: string;
   lockerId: string;
   expiresAt: number;
   revoked: boolean;
-  /** Set by the first validated World check when `enrollable` is true. */
-  subject: Subject | null;
-  enrollable: boolean;
+  codeHash: string;
+}
+
+export function hashCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+export function codeMatches(grant: Grant, code: string): boolean {
+  const expected = Buffer.from(grant.codeHash, "utf8");
+  const actual = Buffer.from(hashCode(code), "utf8");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 export interface GrantBook {
   /** Throws if the source of grants can't answer, which must keep the door shut. */
   get(id: string): Promise<Grant | null>;
-  /** Links an identity to an unenrolled grant. Returns false if the grant can't take it. */
-  enroll(id: string, subject: Subject): Promise<boolean>;
 }
 
 /** For running with DEV_MOCKS=1 and no Arkiv wallet. */
@@ -39,23 +42,6 @@ export class GrantStore implements GrantBook {
 
   put(grant: Grant): void {
     this.grants.set(grant.id, grant);
-    this.save();
-  }
-
-  async enroll(id: string, subject: Subject): Promise<boolean> {
-    const grant = this.grants.get(id);
-    if (!grant || grant.subject || !grant.enrollable) return false;
-    const taken = [...this.grants.values()].some(
-      (other) => other.subject?.iss === subject.iss && other.subject.sub === subject.sub,
-    );
-    if (taken) return false;
-    grant.subject = subject;
-    grant.enrollable = false;
-    this.save();
-    return true;
-  }
-
-  private save(): void {
     if (this.path) writeFileSync(this.path, JSON.stringify([...this.grants.values()], null, 2));
   }
 }

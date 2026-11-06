@@ -1,17 +1,18 @@
 // One unlock attempt, from request to door. Every failure takes the same failClosed path.
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import type { AiResult, Decider } from "./ai/types.ts";
-import type { Grant, GrantBook, Subject } from "./grants.ts";
+import { codeMatches, type Grant, type GrantBook } from "./grants.ts";
 import type { LockSender } from "./lock/client.ts";
 import { errorText } from "./log/errors.ts";
 import type { EpisodeLog } from "./log/episode.ts";
 import { evaluate } from "./policy.ts";
-import type { PendingWorldCheck, WorldProvider } from "./world/types.ts";
 
 export const ATTEMPT_TTL_MS = 180_000;
+/** Photos per attempt. Only a HOLD earns another try, and every try is logged. */
+export const MAX_PHOTO_TRIES = 3;
 const GRANTS_DOWN = "ARKIV_UNREACHABLE";
 
-export type AttemptState = "AWAITING_WORLD" | "WORLD_PENDING" | "AWAITING_PHOTO" | "DECIDING" | "OPENED" | "DENIED";
+export type AttemptState = "CHECKING_ACCESS" | "AWAITING_PHOTO" | "DECIDING" | "OPENED" | "DENIED";
 
 export interface Attempt {
   id: string;
@@ -21,12 +22,17 @@ export interface Attempt {
   expiresAt: number;
   challenge: string | null;
   reason: string | null;
-  worldSubject: Subject | null;
-  pendingWorld: PendingWorldCheck | null;
+  codeVerified: boolean;
   requestId: string | null;
+  triesLeft: number;
+  /** True after a HOLD, when the person is being asked to try again. */
+  retrying: boolean;
 }
 
-export type PublicAttempt = Pick<Attempt, "id" | "state" | "challenge" | "reason" | "expiresAt">;
+export type PublicAttempt = Pick<
+  Attempt,
+  "id" | "state" | "challenge" | "reason" | "expiresAt" | "requestId" | "triesLeft" | "retrying"
+>;
 
 const CHALLENGES = [
   "SHOW 1 FINGER",
@@ -38,7 +44,7 @@ const CHALLENGES = [
   "SHOW THUMBS UP",
 ];
 
-/** Told how each attempt ended. Reports go public, so they never carry a World ID. */
+/** Told how each attempt ended. Reports go public, so they never carry the access code. */
 export interface AttemptReporter {
   attempt(report: { lockerId: string; attemptId: string; outcome: string; reason: string; requestId: string; at: number }): void;
 }
@@ -49,7 +55,6 @@ export interface ServiceDeps {
   reporter?: AttemptReporter;
   lock: LockSender;
   decider: Decider;
-  world: WorldProvider;
   log: EpisodeLog;
   now?: () => number;
 }
@@ -62,84 +67,46 @@ export class LockerService {
     this.now = deps.now ?? Date.now;
   }
 
-  view({ id, state, challenge, reason, expiresAt }: Attempt): PublicAttempt {
-    return { id, state, challenge, reason, expiresAt };
+  view({ id, state, challenge, reason, expiresAt, requestId, triesLeft, retrying }: Attempt): PublicAttempt {
+    return { id, state, challenge, reason, expiresAt, requestId, triesLeft, retrying };
   }
 
   get(id: string): Attempt | null {
     return this.attempts.get(id) ?? null;
   }
 
-  create(grantId: string): Attempt {
+  /** Checks the grant and its secret code, then asks for the gesture. */
+  async create(grantId: string, code: string): Promise<Attempt> {
     const attempt: Attempt = {
       id: randomUUID(),
       grantId,
       lockerId: this.deps.lockerId,
-      state: "AWAITING_WORLD",
+      state: "CHECKING_ACCESS",
       expiresAt: this.now() + ATTEMPT_TTL_MS,
       challenge: null,
       reason: null,
-      worldSubject: null,
-      pendingWorld: null,
+      codeVerified: false,
       requestId: null,
+      triesLeft: MAX_PHOTO_TRIES,
+      retrying: false,
     };
     this.attempts.set(attempt.id, attempt);
-    return attempt;
-  }
 
-  async startWorld(id: string): Promise<string> {
-    const attempt = this.require(id);
-    if (attempt.state !== "AWAITING_WORLD") throw new Error(`Cannot start World from ${attempt.state}`);
-    const { url, pending } = await this.deps.world.start();
-    attempt.pendingWorld = pending;
-    attempt.state = "WORLD_PENDING";
-    return url;
-  }
-
-  /** Handles the World redirect. Returns the attempt, or null if the state is unknown. */
-  async finishWorld(params: { state: string; code?: string; error?: string }): Promise<Attempt | null> {
-    const attempt = [...this.attempts.values()].find((a) => a.pendingWorld?.state === params.state);
-    if (!attempt || attempt.state !== "WORLD_PENDING") return null;
-    const pending = attempt.pendingWorld!;
-    // State and code are single use, so a repeated callback finds nothing.
-    attempt.pendingWorld = null;
-
-    if (params.error || !params.code) {
-      return this.failClosed(attempt, params.error === "access_denied" ? "WORLD_DENIED" : "WORLD_FAILED");
-    }
-
-    let subject: Subject;
+    let grant: Grant | null;
     try {
-      subject = await this.deps.world.finish(params.code, pending);
-    } catch (error) {
-      console.warn(`[world] rejected: ${(error as Error).message}`);
-      return this.failClosed(attempt, "WORLD_INVALID");
-    }
-
-    if (this.now() >= attempt.expiresAt) return this.failClosed(attempt, "ATTEMPT_EXPIRED");
-
-    let enrolled: Subject;
-    try {
-      const grant = await this.deps.grants.get(attempt.grantId);
-      if (!grant) return this.failClosed(attempt, "NO_GRANT");
-      if (grant.lockerId !== attempt.lockerId) return this.failClosed(attempt, "WRONG_LOCKER");
-      if (grant.revoked) return this.failClosed(attempt, "GRANT_REVOKED");
-      if (!grant.subject && !(await this.deps.grants.enroll(grant.id, subject))) {
-        return this.failClosed(attempt, "ENROLLMENT_REFUSED");
-      }
-      enrolled = grant.subject ?? subject;
+      grant = await this.deps.grants.get(grantId);
     } catch (error) {
       console.warn(`[grants] unavailable: ${errorText(error)}`);
       return this.failClosed(attempt, GRANTS_DOWN);
     }
-    if (enrolled.iss !== subject.iss || enrolled.sub !== subject.sub) {
-      return this.failClosed(attempt, "WRONG_PERSON");
-    }
+    // Anyone can send these two, so they cost nothing: no Arkiv write and nothing on the display.
+    if (!grant) return this.refuse(attempt, "NO_GRANT");
+    if (!codeMatches(grant, code)) return this.refuse(attempt, "BAD_CODE");
 
-    attempt.worldSubject = subject;
-    attempt.challenge = CHALLENGES[randomInt(CHALLENGES.length)]!;
-    attempt.state = "AWAITING_PHOTO";
-    await this.deps.lock.send("SHOW", `Do this:|${attempt.challenge}`);
+    attempt.codeVerified = true;
+    if (grant.lockerId !== attempt.lockerId) return this.failClosed(attempt, "WRONG_LOCKER");
+    if (grant.revoked) return this.failClosed(attempt, "GRANT_REVOKED");
+    await this.askForPhoto(attempt);
     return attempt;
   }
 
@@ -169,7 +136,7 @@ export class LockerService {
       lockerId: attempt.lockerId,
       attemptExpiresAt: attempt.expiresAt,
       grant,
-      worldSubject: attempt.worldSubject,
+      codeVerified: attempt.codeVerified,
       aiDecision: ai.decision,
     });
 
@@ -181,12 +148,27 @@ export class LockerService {
     }
     this.record(attempt, imageDataUrl, ai, policy.allow ? "ALLOW" : policy.reason, lockAck);
     if (attempt.state === "OPENED") {
+      attempt.retrying = false;
       this.report(attempt);
       return attempt;
     }
 
     if (policy.allow) return this.failClosed(attempt, "LOCK_UNREACHABLE");
+    if (!policy.allow && policy.reason === "AI_HOLD" && attempt.triesLeft > 1) {
+      attempt.triesLeft--;
+      attempt.retrying = true;
+      await this.askForPhoto(attempt);
+      return attempt;
+    }
     return this.failClosed(attempt, ai.status === "OK" ? policy.reason : ai.status);
+  }
+
+  /** Always a new challenge, so a retry can't reuse the last photo's gesture. */
+  private async askForPhoto(attempt: Attempt): Promise<void> {
+    const others = CHALLENGES.filter((challenge) => challenge !== attempt.challenge);
+    attempt.challenge = others[randomInt(others.length)]!;
+    attempt.state = "AWAITING_PHOTO";
+    await this.deps.lock.send("SHOW", `Do this:|${attempt.challenge}`);
   }
 
   private record(attempt: Attempt, imageDataUrl: string, ai: AiResult, policy: string, lockAck: string): void {
@@ -218,10 +200,17 @@ export class LockerService {
     });
   }
 
+  private refuse(attempt: Attempt, reason: string): Attempt {
+    attempt.state = "DENIED";
+    attempt.reason = reason;
+    return attempt;
+  }
+
   private async failClosed(attempt: Attempt, reason: string): Promise<Attempt> {
     attempt.state = "DENIED";
     attempt.reason = reason;
-    attempt.worldSubject = null;
+    attempt.retrying = false;
+    attempt.codeVerified = false;
     this.report(attempt);
     const line = reason === "0G_UNREACHABLE" ? "0G unreachable" : reason;
     await this.deps.lock.send(reason === "0G_UNREACHABLE" ? "SAFE" : "SHOW", reason === "0G_UNREACHABLE" ? line : `DENIED|${line}`);

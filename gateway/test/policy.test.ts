@@ -3,9 +3,8 @@ import { test } from "node:test";
 import type { Grant } from "../src/grants.ts";
 import { evaluate, type PolicyInput } from "../src/policy.ts";
 
-const SUBJECT = { iss: "world", sub: "alice" };
-const GRANT: Grant = { id: "g", lockerId: "l", expiresAt: 2000, revoked: false, subject: SUBJECT, enrollable: false };
-const BASE: PolicyInput = { now: 1000, lockerId: "l", attemptExpiresAt: 2000, grant: GRANT, worldSubject: SUBJECT, aiDecision: "OPEN" };
+const GRANT: Grant = { id: "g", lockerId: "l", expiresAt: 2000, revoked: false, codeHash: "h" };
+const BASE: PolicyInput = { now: 1000, lockerId: "l", attemptExpiresAt: 2000, grant: GRANT, codeVerified: true, aiDecision: "OPEN" };
 
 test("allows only when every check passes", () => {
   assert.deepEqual(evaluate(BASE), { allow: true });
@@ -17,10 +16,7 @@ const denials: [string, Partial<PolicyInput>, string][] = [
   ["grant for another locker", { lockerId: "other" }, "WRONG_LOCKER"],
   ["revoked grant", { grant: { ...GRANT, revoked: true } }, "GRANT_REVOKED"],
   ["expired grant", { grant: { ...GRANT, expiresAt: 500 } }, "GRANT_EXPIRED"],
-  ["no World check", { worldSubject: null }, "WORLD_NOT_VERIFIED"],
-  ["unenrolled grant", { grant: { ...GRANT, subject: null } }, "GRANT_NOT_ENROLLED"],
-  ["wrong person", { worldSubject: { iss: "world", sub: "mallory" } }, "WRONG_PERSON"],
-  ["same sub, other issuer", { worldSubject: { iss: "other", sub: "alice" } }, "WRONG_PERSON"],
+  ["no code check", { codeVerified: false }, "CODE_NOT_VERIFIED"],
   ["AI unavailable", { aiDecision: null }, "AI_UNAVAILABLE"],
   ["AI hold", { aiDecision: "HOLD" }, "AI_HOLD"],
   ["AI alert", { aiDecision: "ALERT" }, "AI_ALERT"],
@@ -33,6 +29,6 @@ for (const [name, change, reason] of denials) {
 }
 
 test("a fooled model saying OPEN can't get past missing checks", () => {
-  const result = evaluate({ ...BASE, worldSubject: { iss: "world", sub: "mallory" }, aiDecision: "OPEN" });
+  const result = evaluate({ ...BASE, codeVerified: false, aiDecision: "OPEN" });
   assert.equal(result.allow, false);
 });

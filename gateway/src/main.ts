@@ -6,8 +6,8 @@ import { Arkiv } from "./arkiv/backend.ts";
 import { BOARD_BEAT_MS, LockerBoard } from "./arkiv/board.ts";
 import { ArkivGrants } from "./arkiv/grants.ts";
 import { ZeroGDecider } from "./ai/zerog.ts";
-import { FakeDecider, FakeWorld } from "./dev.ts";
-import { GrantStore, type GrantBook } from "./grants.ts";
+import { FakeDecider } from "./dev.ts";
+import { GrantStore, hashCode, type GrantBook } from "./grants.ts";
 import { LockClient } from "./lock/client.ts";
 import { parseKey } from "./lock/protocol.ts";
 import { EpisodeLog } from "./log/episode.ts";
@@ -15,11 +15,10 @@ import { EpisodePublisher } from "./zerog/publisher.ts";
 import { ZeroGNetwork } from "./zerog/network.ts";
 import { createApp } from "./server.ts";
 import { LockerService } from "./service.ts";
-import type { WorldProvider } from "./world/types.ts";
-import { SANDBOX_ISSUER, WorldOidc } from "./world/oidc.ts";
 
 const HEARTBEAT_MS = 3000;
 const PUBLISH_MS = 15_000;
+const DEV_CODE = "dev-code";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -31,9 +30,7 @@ const devMocks = process.env.DEV_MOCKS === "1";
 const devAi = process.env.DEV_AI ?? "OPEN";
 if (!["OPEN", "HOLD", "ALERT", "DOWN", "LIVE"].includes(devAi)) throw new Error("DEV_AI must be OPEN, HOLD, ALERT, DOWN or LIVE");
 const fakeAi = devMocks && devAi !== "LIVE";
-if (devMocks) {
-  console.warn(`DEV_MOCKS=1: World ID${fakeAi ? " and the AI are" : " is"} FAKE. Never use this for a real demo.`);
-}
+if (fakeAi) console.warn("The AI is FAKE. Never use this for a real demo.");
 
 mkdirSync("data", { recursive: true });
 const lockerId = required("LOCK_ID");
@@ -47,19 +44,17 @@ const board = arkiv ? new LockerBoard(arkiv, lockerId) : undefined;
 async function openGrants(): Promise<GrantBook> {
   if (arkiv) {
     console.log(`[arkiv] gateway wallet ${arkiv.address}`);
-    return new ArkivGrants(arkiv, "data/enrollments.json");
+    return new ArkivGrants(arkiv);
   }
   const local = new GrantStore("data/grants.json");
-  if (!(await local.get("dev-grant"))) {
-    local.put({
-      id: "dev-grant",
-      lockerId,
-      expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
-      revoked: false,
-      subject: null,
-      enrollable: true,
-    });
-  }
+  local.put({
+    id: "dev-grant",
+    lockerId,
+    expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+    revoked: false,
+    codeHash: hashCode(DEV_CODE),
+  });
+  console.log(`Dev access link: http://localhost:${process.env.PORT ?? 8080}/?grant=dev-grant#code=${DEV_CODE}`);
   return local;
 }
 
@@ -72,15 +67,6 @@ const decider: Decider = fakeAi
       baseUrl: process.env.OG_BASE || undefined,
       model: process.env.OG_MODEL,
       verifyTee: process.env.OG_VERIFY_TEE === "1",
-    });
-
-const world: WorldProvider = devMocks
-  ? new FakeWorld({ iss: "dev", sub: process.env.DEV_WORLD_SUB ?? "dev-user" })
-  : new WorldOidc({
-      issuer: process.env.WORLD_ISSUER ?? SANDBOX_ISSUER,
-      clientId: required("WORLD_CLIENT_ID"),
-      clientSecret: required("WORLD_CLIENT_SECRET"),
-      redirectUri: required("WORLD_REDIRECT_URI"),
     });
 
 const lock = new LockClient(required("LOCK_URL"), lockerId, parseKey(required("LOCK_KEY_HEX")));
@@ -104,7 +90,6 @@ const service = new LockerService({
   grants,
   lock,
   decider,
-  world,
   reporter: board,
   log,
 });
@@ -123,5 +108,5 @@ if (board) {
 }
 
 const port = Number(process.env.PORT ?? 8080);
-serve({ fetch: createApp(service, { devMocks }).fetch, port });
+serve({ fetch: createApp(service).fetch, port });
 console.log(`Gateway on http://localhost:${port}`);

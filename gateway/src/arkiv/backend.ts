@@ -1,5 +1,5 @@
 // Every read and write the gateway makes on Arkiv. Only small, expiring state goes here:
-// World IDs, photos and keys stay off this public store.
+// access codes, photos and keys stay off this public store. Grants hold only a hash of the code.
 import { createPublicClient, createWalletClient, ExpirationTime, NoEntityFoundError, SchemaMismatchError } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { desc, eq } from "@arkiv-network/sdk/query";
@@ -10,7 +10,7 @@ import { privateKeyToAccount } from "viem/accounts";
 export const GrantSchema = defineSchema("proofbolt.grant", {
   lockerId: str().indexed(),
   revoked: bool(),
-  enrolled: bool(),
+  codeHash: str(),
 });
 
 export const LockerSchema = defineSchema("proofbolt.locker", {
@@ -42,7 +42,7 @@ const RECENT_ATTEMPTS = 20;
 export interface GrantEntity {
   lockerId: string;
   revoked: boolean;
-  enrolled: boolean;
+  codeHash: string;
 }
 
 export interface LockerEntity {
@@ -79,8 +79,8 @@ export interface ArkivReader {
 }
 
 export interface ArkivWriter {
-  createGrant(lockerId: string, expiresInSeconds: number): Promise<string>;
-  patchGrant(key: string, changes: Partial<Pick<GrantEntity, "revoked" | "enrolled">>): Promise<void>;
+  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string): Promise<string>;
+  revokeGrant(key: string): Promise<void>;
   createLocker(lockerId: string, lockReachable: boolean): Promise<string>;
   patchLocker(key: string, lockReachable: boolean): Promise<void>;
   extendLocker(key: string): Promise<void>;
@@ -122,7 +122,7 @@ export class ArkivRead implements ArkivReader {
     try {
       const grant = await this.client.getEntity(key, GrantSchema);
       if (!isTrusted(grant, this.gateway)) return null;
-      return { lockerId: grant.lockerId.value, revoked: grant.revoked.value, enrolled: grant.enrolled.value };
+      return { lockerId: grant.lockerId.value, revoked: grant.revoked.value, codeHash: grant.codeHash.value };
     } catch (error) {
       if (error instanceof NoEntityFoundError || error instanceof SchemaMismatchError) return null;
       throw error;
@@ -211,20 +211,20 @@ export class Arkiv extends ArkivRead implements ArkivWriter {
     return result;
   }
 
-  createGrant(lockerId: string, expiresInSeconds: number): Promise<string> {
+  createGrant(lockerId: string, expiresInSeconds: number, codeHash: string): Promise<string> {
     return this.write(async () => {
       const { entityKey } = await this.wallet.createEntity(
         GrantSchema,
-        { lockerId, revoked: false, enrolled: false },
+        { lockerId, revoked: false, codeHash },
         { expiration: ExpirationTime.fromSeconds(expiresInSeconds) },
       );
       return entityKey;
     });
   }
 
-  patchGrant(key: string, changes: Partial<Pick<GrantEntity, "revoked" | "enrolled">>): Promise<void> {
+  revokeGrant(key: string): Promise<void> {
     return this.write(async () => {
-      await this.wallet.patchEntity(GrantSchema, key as Hex, { set: changes });
+      await this.wallet.patchEntity(GrantSchema, key as Hex, { set: { revoked: true } });
     });
   }
 
